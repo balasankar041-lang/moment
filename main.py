@@ -5,13 +5,11 @@ import numpy as np
 print("QUANT MOMENTUM SCREENER")
 print("=======================")
 
-# Read stock universe
 universe = pd.read_csv("universe.csv")
 
 results = []
 
 for symbol in universe["symbol"].dropna():
-    print(f"Processing {symbol}...")
 
     try:
         data = yf.download(
@@ -29,27 +27,40 @@ for symbol in universe["symbol"].dropna():
         if len(close) < 253:
             continue
 
-        # Momentum
+        # Returns
         r3 = close.iloc[-1] / close.iloc[-64] - 1
         r6 = close.iloc[-1] / close.iloc[-127] - 1
         r12 = close.iloc[-1] / close.iloc[-253] - 1
 
-        # Volatility
-        daily_returns = close.pct_change().dropna()
-        volatility = daily_returns.std() * np.sqrt(252)
+        # Daily returns
+        daily = close.pct_change().dropna()
 
-        # Trend
+        # Volatility
+        volatility = daily.std() * np.sqrt(252)
+
+        # Sharpe-like risk-adjusted return
+        risk_adjusted = r12 / volatility if volatility > 0 else 0
+
+        # 200-day trend
         sma200 = close.rolling(200).mean().iloc[-1]
         trend = close.iloc[-1] / sma200 - 1
 
-        # Quantitative score
+        # Maximum drawdown
+        wealth = (1 + daily).cumprod()
+        drawdown = wealth / wealth.cummax() - 1
+        max_drawdown = drawdown.min()
+
+        # Preliminary composite score
         score = (
-            r3 * 0.20
-            + r6 * 0.30
-            + r12 * 0.50
-            + trend * 0.20
-            - volatility * 0.10
+            r3 * 0.15
+            + r6 * 0.25
+            + r12 * 0.35
+            + risk_adjusted * 0.15
+            + trend * 0.10
         )
+
+        # Risk penalty
+        score = score + max_drawdown * 0.10
 
         results.append({
             "Stock": symbol,
@@ -57,7 +68,9 @@ for symbol in universe["symbol"].dropna():
             "6M Return": r6,
             "12M Return": r12,
             "Volatility": volatility,
+            "Risk Adjusted": risk_adjusted,
             "Trend": trend,
+            "Max Drawdown": max_drawdown,
             "Score": score
         })
 
@@ -69,14 +82,37 @@ df = pd.DataFrame(results)
 if df.empty:
     print("No valid results.")
 else:
-    df = df.sort_values("Score", ascending=False)
-    df["Rank"] = range(1, len(df) + 1)
 
-    print("\nTOP 15 STOCKS")
-    print("=============")
-    print(df.head(15).to_string(index=False))
+    df = df.sort_values(
+        "Score",
+        ascending=False
+    ).reset_index(drop=True)
+
+    df["Rank"] = df.index + 1
+
+    top15 = df.head(15)
+
+    print("\nTOP 15")
+    print("=======")
+
+    print(
+        top15[
+            [
+                "Rank",
+                "Stock",
+                "3M Return",
+                "6M Return",
+                "12M Return",
+                "Volatility",
+                "Risk Adjusted",
+                "Trend",
+                "Max Drawdown",
+                "Score"
+            ]
+        ].to_string(index=False)
+    )
 
     df.to_csv("ranking.csv", index=False)
 
-    print("\nRanking saved to ranking.csv")
-    print("CALCULATION: WORKING")
+    print("\nFull ranking saved to ranking.csv")
+    print("TOP 15 CALCULATION: WORKING")
