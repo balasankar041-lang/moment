@@ -4,14 +4,14 @@ import numpy as np
 
 TOP_N = 15
 YEARS = 10
-TRADING_COST = 0.0015
+COSTS = [0.0015, 0.0030, 0.0050, 0.0100]
 MIN_HISTORY_MONTHS = 36
 
-print("NIFTY 500 TOP-15 CONCENTRATION BACKTEST")
-print("=======================================")
+print("NIFTY 500 TOP-15 COST STRESS TEST")
+print("=================================")
 
 # -----------------------------
-# NIFTY 500 UNIVERSE
+# NIFTY 500
 # -----------------------------
 url = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
 
@@ -37,12 +37,11 @@ symbols = [
 symbols = list(dict.fromkeys(symbols))
 
 print(f"Universe candidates: {len(symbols)}")
-print(f"History: {YEARS} years")
 print(f"Portfolio: Top {TOP_N}")
 print("Downloading data...")
 
 # -----------------------------
-# DOWNLOAD DATA
+# DOWNLOAD
 # -----------------------------
 all_data = []
 BATCH_SIZE = 50
@@ -115,24 +114,14 @@ if len(prices.columns) < 450:
         "Too few stocks downloaded."
     )
 
-# -----------------------------
-# MONTHLY DATA
-# -----------------------------
 monthly = prices.resample("ME").last()
 
-portfolio_returns = []
+# -----------------------------
+# RUN STRATEGY ONCE
+# -----------------------------
+raw_returns = []
 previous_stocks = set()
 
-# Stock statistics
-stock_stats = {}
-
-total_turnover = 0
-rebalance_count = 0
-replacement_count = 0
-
-# -----------------------------
-# BACKTEST
-# -----------------------------
 for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
 
     current = monthly.iloc[i]
@@ -145,11 +134,9 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
     ret6 = current / p6 - 1
     ret12 = current / p12 - 1
 
-    start_date = monthly.index[i - 12]
-    end_date = monthly.index[i]
-
     daily = prices.loc[
-        start_date:end_date
+        monthly.index[i - 12]:
+        monthly.index[i]
     ]
 
     valid_days = daily.count()
@@ -161,9 +148,6 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
     if len(eligible) < TOP_N:
         continue
 
-    # -----------------------------
-    # VOLATILITY
-    # -----------------------------
     daily_returns = daily[eligible].pct_change()
 
     vol = (
@@ -171,9 +155,6 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
         * np.sqrt(252)
     )
 
-    # -----------------------------
-    # RISK-ADJUSTED MOMENTUM
-    # -----------------------------
     score = (
         0.20 * ret3 +
         0.30 * ret6 +
@@ -207,53 +188,11 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
 
     portfolio_return = stock_returns.mean()
 
-    # -----------------------------
-    # STOCK STATISTICS
-    # -----------------------------
-    for stock in stock_returns.index:
-
-        if stock not in stock_stats:
-            stock_stats[stock] = {
-                "months_held": 0,
-                "gross_contribution": 0.0,
-                "positive_months": 0,
-                "negative_months": 0,
-                "best_month": -999.0,
-                "worst_month": 999.0
-            }
-
-        r = stock_returns[stock]
-
-        stock_stats[stock]["months_held"] += 1
-
-        # Equal-weight contribution
-        contribution = r / TOP_N
-
-        stock_stats[stock][
-            "gross_contribution"
-        ] += contribution
-
-        if r > 0:
-            stock_stats[stock]["positive_months"] += 1
-        else:
-            stock_stats[stock]["negative_months"] += 1
-
-        stock_stats[stock]["best_month"] = max(
-            stock_stats[stock]["best_month"],
-            r
-        )
-
-        stock_stats[stock]["worst_month"] = min(
-            stock_stats[stock]["worst_month"],
-            r
-        )
-
-    # -----------------------------
-    # TURNOVER
-    # -----------------------------
     current_stocks = set(
         stock_returns.index
     )
+
+    turnover = 0.0
 
     if previous_stocks:
 
@@ -267,208 +206,146 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
             changed / (2 * TOP_N)
         )
 
-        total_turnover += turnover
-        replacement_count += changed / 2
-
-        portfolio_return -= (
-            turnover * TRADING_COST
-        )
-
-        rebalance_count += 1
+    raw_returns.append({
+        "Date": monthly.index[i + 1],
+        "GrossReturn": portfolio_return,
+        "Turnover": turnover
+    })
 
     previous_stocks = current_stocks
 
-    portfolio_returns.append({
-        "Date": monthly.index[i + 1],
-        "Return": portfolio_return
-    })
+raw = pd.DataFrame(raw_returns)
 
-# -----------------------------
-# RESULTS
-# -----------------------------
-result = pd.DataFrame(
-    portfolio_returns
-)
-
-if result.empty:
+if raw.empty:
     raise RuntimeError(
         "Backtest produced no results."
     )
 
-result = result.set_index("Date")
-
-equity = (
-    1 + result["Return"]
-).cumprod()
-
-years_tested = (
-    result.index[-1]
-    - result.index[0]
-).days / 365.25
-
-cagr = (
-    equity.iloc[-1]
-    ** (1 / years_tested)
-) - 1
-
-annual_volatility = (
-    result["Return"].std()
-    * np.sqrt(12)
-)
-
-sharpe = (
-    result["Return"].mean()
-    / result["Return"].std()
-) * np.sqrt(12)
-
-drawdown = (
-    equity / equity.cummax()
-) - 1
-
-max_drawdown = drawdown.min()
-
-win_rate = (
-    result["Return"] > 0
-).mean()
-
-total_return = (
-    equity.iloc[-1] - 1
-)
+raw = raw.set_index("Date")
 
 # -----------------------------
-# STOCK ANALYSIS
+# COST STRESS TEST
 # -----------------------------
-stats = pd.DataFrame.from_dict(
-    stock_stats,
-    orient="index"
-)
+results = []
 
-stats.index.name = "Stock"
-
-stats["holding_percentage"] = (
-    stats["months_held"]
-    / len(result)
-)
-
-stats["positive_month_percentage"] = (
-    stats["positive_months"]
-    / stats["months_held"]
-)
-
-stats = stats.sort_values(
-    "gross_contribution",
-    ascending=False
-)
-
-stats.to_csv(
-    "stock_concentration_analysis.csv"
-)
-
-# -----------------------------
-# YEARLY RETURNS
-# -----------------------------
-yearly_returns = (
-    (1 + result["Return"])
-    .groupby(result.index.year)
-    .prod()
-    - 1
-)
-
-yearly_returns.to_csv(
-    "yearly_returns.csv"
-)
-
-# -----------------------------
-# SAVE MAIN RESULT
-# -----------------------------
-result["Equity"] = equity
-result["Drawdown"] = drawdown
-
-result.to_csv(
-    "nifty500_top15_concentration_backtest.csv"
-)
-
-# -----------------------------
-# PRINT MAIN RESULT
-# -----------------------------
 print()
 print("================================")
-print("BACKTEST RESULT")
+print("TRANSACTION COST STRESS TEST")
 print("================================")
 
-print(
-    f"Period: "
-    f"{result.index[0].date()} "
-    f"to "
-    f"{result.index[-1].date()}"
-)
+for cost in COSTS:
 
-print(f"Total return: {total_return:.2%}")
-print(f"CAGR: {cagr:.2%}")
-print(f"Annual volatility: {annual_volatility:.2%}")
-print(f"Sharpe ratio: {sharpe:.2f}")
-print(f"Maximum drawdown: {max_drawdown:.2%}")
-print(f"Winning months: {win_rate:.2%}")
-print(f"Months tested: {len(result)}")
-
-# -----------------------------
-# TURNOVER
-# -----------------------------
-if rebalance_count > 0:
-
-    average_turnover = (
-        total_turnover /
-        rebalance_count
+    returns = (
+        raw["GrossReturn"]
+        - raw["Turnover"] * cost
     )
+
+    equity = (
+        1 + returns
+    ).cumprod()
+
+    years_tested = (
+        equity.index[-1]
+        - equity.index[0]
+    ).days / 365.25
+
+    cagr = (
+        equity.iloc[-1]
+        ** (1 / years_tested)
+    ) - 1
+
+    volatility = (
+        returns.std()
+        * np.sqrt(12)
+    )
+
+    sharpe = (
+        returns.mean()
+        / returns.std()
+    ) * np.sqrt(12)
+
+    drawdown = (
+        equity /
+        equity.cummax()
+    ) - 1
+
+    max_drawdown = drawdown.min()
+
+    win_rate = (
+        returns > 0
+    ).mean()
+
+    total_return = (
+        equity.iloc[-1] - 1
+    )
+
+    results.append({
+        "Trading cost": cost,
+        "Total return": total_return,
+        "CAGR": cagr,
+        "Volatility": volatility,
+        "Sharpe": sharpe,
+        "Max drawdown": max_drawdown,
+        "Winning months": win_rate
+    })
+
+# -----------------------------
+# PRINT
+# -----------------------------
+table = pd.DataFrame(results)
+
+for _, row in table.iterrows():
 
     print()
-    print("TURNOVER ANALYSIS")
-    print("=================")
     print(
-        f"Rebalances: {rebalance_count}"
+        f"Trading cost: "
+        f"{row['Trading cost']:.2%}"
     )
+
     print(
-        f"Average monthly turnover: "
-        f"{average_turnover:.2%}"
+        f"Total return: "
+        f"{row['Total return']:.2%}"
     )
+
     print(
-        f"Estimated replacements: "
-        f"{replacement_count:.0f}"
+        f"CAGR: "
+        f"{row['CAGR']:.2%}"
+    )
+
+    print(
+        f"Annual volatility: "
+        f"{row['Volatility']:.2%}"
+    )
+
+    print(
+        f"Sharpe ratio: "
+        f"{row['Sharpe']:.2f}"
+    )
+
+    print(
+        f"Maximum drawdown: "
+        f"{row['Max drawdown']:.2%}"
+    )
+
+    print(
+        f"Winning months: "
+        f"{row['Winning months']:.2%}"
     )
 
 # -----------------------------
-# TOP STOCKS
+# SAVE
 # -----------------------------
-print()
-print("TOP 20 STOCK CONTRIBUTIONS")
-print("===========================")
+table.to_csv(
+    "transaction_cost_stress_test.csv",
+    index=False
+)
 
-for stock, row in stats.head(20).iterrows():
-
-    print(
-        f"{stock}: "
-        f"held {int(row['months_held'])} months | "
-        f"contribution "
-        f"{row['gross_contribution']:.2%} | "
-        f"positive months "
-        f"{row['positive_month_percentage']:.1%}"
-    )
-
-# -----------------------------
-# YEARLY RETURNS
-# -----------------------------
-print()
-print("YEAR-BY-YEAR RETURNS")
-print("=====================")
-
-for year, value in yearly_returns.items():
-    print(
-        f"{year}: {value:.2%}"
-    )
+raw.to_csv(
+    "raw_strategy_returns.csv"
+)
 
 print()
 print("Saved:")
-print("nifty500_top15_concentration_backtest.csv")
-print("stock_concentration_analysis.csv")
-print("yearly_returns.csv")
-print("BACKTEST COMPLETE")
+print("transaction_cost_stress_test.csv")
+print("raw_strategy_returns.csv")
+print("COST STRESS TEST COMPLETE")
