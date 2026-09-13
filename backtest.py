@@ -5,9 +5,10 @@ import numpy as np
 TOP_N = 15
 YEARS = 10
 TRADING_COST = 0.0015
+MIN_HISTORY_MONTHS = 36
 
-print("NIFTY 500 RISK-ADJUSTED MOMENTUM BACKTEST")
-print("=========================================")
+print("NIFTY 500 ROBUST TOP-15 BACKTEST")
+print("================================")
 
 # -----------------------------
 # NIFTY 500 UNIVERSE
@@ -25,34 +26,94 @@ symbols = (
     .astype(str)
     .str.strip()
     .str.upper()
-    .unique()
 )
 
-symbols = [s + ".NS" for s in symbols]
+# Remove obvious invalid/dummy symbols
+symbols = [
+    s + ".NS"
+    for s in symbols
+    if s.isalpha() and len(s) <= 15
+]
 
-print(f"Universe: {len(symbols)} stocks")
+symbols = list(dict.fromkeys(symbols))
+
+print(f"Universe candidates: {len(symbols)}")
 print(f"History: {YEARS} years")
 print(f"Portfolio: Top {TOP_N}")
 print("Downloading data...")
 
 # -----------------------------
-# DOWNLOAD PRICE DATA
+# DOWNLOAD IN BATCHES
 # -----------------------------
-prices = yf.download(
-    symbols,
-    period=f"{YEARS}y",
-    auto_adjust=True,
-    progress=False,
-    threads=True
-)["Close"]
+all_data = []
 
-prices = prices.dropna(axis=1, how="all")
+BATCH_SIZE = 50
+
+for start in range(0, len(symbols), BATCH_SIZE):
+
+    batch = symbols[start:start + BATCH_SIZE]
+
+    print(
+        f"Batch {start + 1}-"
+        f"{min(start + BATCH_SIZE, len(symbols))}"
+    )
+
+    try:
+        data = yf.download(
+            batch,
+            period=f"{YEARS}y",
+            auto_adjust=True,
+            progress=False,
+            threads=True
+        )
+
+        if data.empty:
+            continue
+
+        if isinstance(data.columns, pd.MultiIndex):
+            if "Close" in data.columns.levels[0]:
+                data = data["Close"]
+            else:
+                continue
+        else:
+            if "Close" in data.columns:
+                data = data[["Close"]]
+                data.columns = [batch[0]]
+            else:
+                continue
+
+        all_data.append(data)
+
+    except Exception as e:
+        print("Batch error:", e)
+
+if not all_data:
+    raise RuntimeError("No price data downloaded.")
+
+prices = pd.concat(all_data, axis=1)
+
+prices = prices.loc[
+    :,
+    ~prices.columns.duplicated()
+]
+
+prices = prices.dropna(
+    axis=1,
+    how="all"
+)
+
 prices = prices.ffill()
 
-print(f"Stocks with data: {len(prices.columns)}")
+print(f"Stocks with usable data: {len(prices.columns)}")
+
+if len(prices.columns) < 450:
+    raise RuntimeError(
+        "Too few stocks downloaded. "
+        "Backtest stopped to avoid unreliable results."
+    )
 
 # -----------------------------
-# MONTHLY DATA
+# MONTHLY PRICES
 # -----------------------------
 monthly = prices.resample("ME").last()
 
@@ -60,70 +121,87 @@ portfolio_returns = []
 previous_stocks = set()
 
 # -----------------------------
-# MOMENTUM CALCULATION
+# BACKTEST
 # -----------------------------
 for i in range(12, len(monthly) - 1):
 
     current = monthly.iloc[i]
 
-    price_3m = monthly.iloc[i - 3]
-    price_6m = monthly.iloc[i - 6]
-    price_12m = monthly.iloc[i - 12]
+    p3 = monthly.iloc[i - 3]
+    p6 = monthly.iloc[i - 6]
+    p12 = monthly.iloc[i - 12]
 
-    ret_3m = current / price_3m - 1
-    ret_6m = current / price_6m - 1
-    ret_12m = current / price_12m - 1
+    ret3 = current / p3 - 1
+    ret6 = current / p6 - 1
+    ret12 = current / p12 - 1
 
-    # 12-month volatility
-    daily_start = prices.index[
+    # -------------------------
+    # HISTORICAL DATA FILTER
+    # -------------------------
+    history_start = prices.index[
         prices.index <= monthly.index[i - 12]
     ]
 
-    daily_end = prices.index[
+    history_end = prices.index[
         prices.index <= monthly.index[i]
     ]
 
-    if len(daily_start) == 0 or len(daily_end) == 0:
+    if len(history_start) == 0 or len(history_end) == 0:
         continue
 
-    start_date = daily_start[-1]
-    end_date = daily_end[-1]
+    start_date = history_start[-1]
+    end_date = history_end[-1]
 
-    daily_prices = prices.loc[start_date:end_date]
+    daily = prices.loc[start_date:end_date]
 
-    daily_returns = daily_prices.pct_change()
+    # Require enough daily observations
+    valid_days = daily.count()
 
-    volatility = daily_returns.std() * np.sqrt(252)
+    eligible = valid_days[
+        valid_days >= MIN_HISTORY_MONTHS * 18
+    ].index
 
-    # -----------------------------
-    # RISK-ADJUSTED MOMENTUM SCORE
-    # -----------------------------
-    score = (
-        0.20 * ret_3m +
-        0.30 * ret_6m +
-        0.50 * ret_12m
+    if len(eligible) < TOP_N:
+        continue
+
+    # -------------------------
+    # VOLATILITY
+    # -------------------------
+    daily_returns = daily[eligible].pct_change()
+
+    vol = (
+        daily_returns.std()
+        * np.sqrt(252)
     )
 
-    # Penalize high volatility
-    risk_adjusted_score = score / volatility
+    # -------------------------
+    # RISK-ADJUSTED MOMENTUM
+    # -------------------------
+    score = (
+        0.20 * ret3 +
+        0.30 * ret6 +
+        0.50 * ret12
+    )
 
-    # Remove invalid values
-    risk_adjusted_score = risk_adjusted_score.replace(
-        [np.inf, -np.inf], np.nan
-    ).dropna()
+    score = score / vol
 
-    # Only positive momentum
-    risk_adjusted_score = risk_adjusted_score[
-        risk_adjusted_score > 0
-    ]
+    score = score.replace(
+        [np.inf, -np.inf],
+        np.nan
+    )
 
-    if len(risk_adjusted_score) < TOP_N:
+    score = score.dropna()
+
+    # Positive momentum only
+    score = score[score > 0]
+
+    if len(score) < TOP_N:
         continue
 
-    # -----------------------------
-    # SELECT TOP 15
-    # -----------------------------
-    selected = risk_adjusted_score.nlargest(TOP_N).index
+    # -------------------------
+    # TOP 15
+    # -------------------------
+    selected = score.nlargest(TOP_N).index
 
     next_month = monthly.iloc[i + 1]
 
@@ -132,15 +210,17 @@ for i in range(12, len(monthly) - 1):
         current[selected] - 1
     ).dropna()
 
-    if stock_returns.empty:
+    if len(stock_returns) < TOP_N * 0.7:
         continue
 
     portfolio_return = stock_returns.mean()
 
-    # -----------------------------
-    # TURNOVER COST
-    # -----------------------------
-    current_stocks = set(selected)
+    # -------------------------
+    # TRANSACTION COST
+    # -------------------------
+    current_stocks = set(
+        stock_returns.index
+    )
 
     if previous_stocks:
 
@@ -150,15 +230,20 @@ for i in range(12, len(monthly) - 1):
             )
         )
 
-        turnover = changed / (2 * TOP_N)
+        turnover = (
+            changed /
+            (2 * TOP_N)
+        )
 
         portfolio_return -= (
-            turnover * TRADING_COST
+            turnover *
+            TRADING_COST
         )
 
     portfolio_returns.append({
         "Date": monthly.index[i + 1],
-        "Return": portfolio_return
+        "Return": portfolio_return,
+        "Stocks": len(stock_returns)
     })
 
     previous_stocks = current_stocks
@@ -166,7 +251,9 @@ for i in range(12, len(monthly) - 1):
 # -----------------------------
 # RESULTS
 # -----------------------------
-result = pd.DataFrame(portfolio_returns)
+result = pd.DataFrame(
+    portfolio_returns
+)
 
 if result.empty:
     raise RuntimeError(
@@ -175,12 +262,10 @@ if result.empty:
 
 result = result.set_index("Date")
 
-# Equity curve
 equity = (
     1 + result["Return"]
 ).cumprod()
 
-# CAGR
 years_tested = (
     result.index[-1] -
     result.index[0]
@@ -191,31 +276,27 @@ cagr = (
     (1 / years_tested)
 ) - 1
 
-# Annual volatility
-volatility = (
+annual_volatility = (
     result["Return"].std()
     * np.sqrt(12)
 )
 
-# Sharpe ratio
 sharpe = (
-    result["Return"].mean()
-    / result["Return"].std()
+    result["Return"].mean() /
+    result["Return"].std()
 ) * np.sqrt(12)
 
-# Maximum drawdown
 drawdown = (
-    equity / equity.cummax()
+    equity /
+    equity.cummax()
 ) - 1
 
 max_drawdown = drawdown.min()
 
-# Winning months
 win_rate = (
     result["Return"] > 0
 ).mean()
 
-# Total return
 total_return = (
     equity.iloc[-1] - 1
 )
@@ -223,18 +304,17 @@ total_return = (
 result["Equity"] = equity
 result["Drawdown"] = drawdown
 
-# Save detailed results
 result.to_csv(
-    "nifty500_risk_adjusted_backtest.csv"
+    "nifty500_robust_top15_backtest.csv"
 )
 
 # -----------------------------
-# PRINT RESULTS
+# PRINT
 # -----------------------------
 print()
-print("==========================================")
-print("RISK-ADJUSTED TOP-15 BACKTEST RESULT")
-print("==========================================")
+print("================================")
+print("ROBUST TOP-15 BACKTEST RESULT")
+print("================================")
 
 print(
     f"Period: "
@@ -255,7 +335,7 @@ print(
 
 print(
     f"Annual volatility: "
-    f"{volatility:.2%}"
+    f"{annual_volatility:.2%}"
 )
 
 print(
@@ -281,7 +361,7 @@ print(
 print()
 print(
     "Saved: "
-    "nifty500_risk_adjusted_backtest.csv"
+    "nifty500_robust_top15_backtest.csv"
 )
 
 print("BACKTEST COMPLETE")
