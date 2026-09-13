@@ -1,28 +1,18 @@
-import pandas as pd
 import yfinance as yf
+import pandas as pd
+import numpy as np
 
-print("NIFTY 500 QUANT SCREENER")
-print("========================")
+print("QUANT MOMENTUM SCREENER")
+print("=======================")
 
-# Temporary test universe.
-# We will replace this with the full current Nifty 500 list
-# after confirming the data pipeline.
-stocks = [
-    "RELIANCE.NS",
-    "HDFCBANK.NS",
-    "ICICIBANK.NS",
-    "INFY.NS",
-    "TCS.NS",
-    "SBIN.NS",
-    "ITC.NS",
-    "BHARTIARTL.NS",
-    "LT.NS",
-    "AXISBANK.NS",
-]
+# Read stock universe
+universe = pd.read_csv("universe.csv")
 
 results = []
 
-for symbol in stocks:
+for symbol in universe["symbol"].dropna():
+    print(f"Processing {symbol}...")
+
     try:
         data = yf.download(
             symbol,
@@ -39,16 +29,20 @@ for symbol in stocks:
         if len(close) < 253:
             continue
 
+        # Momentum
         r3 = close.iloc[-1] / close.iloc[-64] - 1
         r6 = close.iloc[-1] / close.iloc[-127] - 1
         r12 = close.iloc[-1] / close.iloc[-253] - 1
 
-        daily = close.pct_change().dropna()
-        volatility = daily.std() * (252 ** 0.5)
+        # Volatility
+        daily_returns = close.pct_change().dropna()
+        volatility = daily_returns.std() * np.sqrt(252)
 
+        # Trend
         sma200 = close.rolling(200).mean().iloc[-1]
         trend = close.iloc[-1] / sma200 - 1
 
+        # Quantitative score
         score = (
             r3 * 0.20
             + r6 * 0.30
@@ -59,9 +53,9 @@ for symbol in stocks:
 
         results.append({
             "Stock": symbol,
-            "3M": r3,
-            "6M": r6,
-            "12M": r12,
+            "3M Return": r3,
+            "6M Return": r6,
+            "12M Return": r12,
             "Volatility": volatility,
             "Trend": trend,
             "Score": score
@@ -73,13 +67,14 @@ for symbol in stocks:
 df = pd.DataFrame(results)
 
 if df.empty:
-    print("No results.")
+    print("No valid results.")
 else:
     df = df.sort_values("Score", ascending=False)
     df["Rank"] = range(1, len(df) + 1)
 
-    print("\nTOP STOCKS")
-    print(df.head(10).to_string(index=False))
+    print("\nTOP 15 STOCKS")
+    print("=============")
+    print(df.head(15).to_string(index=False))
 
     df.to_csv("ranking.csv", index=False)
 
