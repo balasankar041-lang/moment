@@ -10,7 +10,9 @@ MIN_HISTORY_MONTHS = 36
 print("NIFTY 500 ROBUST TOP-15 BACKTEST")
 print("================================")
 
-# NIFTY 500
+# -----------------------------
+# NIFTY 500 UNIVERSE
+# -----------------------------
 url = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
 
 universe = pd.read_csv(
@@ -39,7 +41,9 @@ print(f"History: {YEARS} years")
 print(f"Portfolio: Top {TOP_N}")
 print("Downloading data...")
 
-# Download in batches
+# -----------------------------
+# DOWNLOAD IN BATCHES
+# -----------------------------
 all_data = []
 BATCH_SIZE = 50
 
@@ -111,13 +115,17 @@ if len(prices.columns) < 450:
         "Too few stocks downloaded."
     )
 
-# Monthly prices
+# -----------------------------
+# MONTHLY PRICES
+# -----------------------------
 monthly = prices.resample("ME").last()
 
 portfolio_returns = []
 previous_stocks = set()
 
-# Start after 36 months
+# -----------------------------
+# BACKTEST
+# -----------------------------
 for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
 
     current = monthly.iloc[i]
@@ -130,7 +138,6 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
     ret6 = current / p6 - 1
     ret12 = current / p12 - 1
 
-    # Previous 12 months of daily data
     start_date = monthly.index[i - 12]
     end_date = monthly.index[i]
 
@@ -138,7 +145,6 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
         start_date:end_date
     ]
 
-    # Require reasonable amount of data
     valid_days = daily.count()
 
     eligible = valid_days[
@@ -148,7 +154,6 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
     if len(eligible) < TOP_N:
         continue
 
-    # Volatility
     daily_returns = daily[eligible].pct_change()
 
     vol = (
@@ -170,13 +175,11 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
         np.nan
     ).dropna()
 
-    # Positive momentum only
     score = score[score > 0]
 
     if len(score) < TOP_N:
         continue
 
-    # Top 15
     selected = score.nlargest(TOP_N).index
 
     next_month = monthly.iloc[i + 1]
@@ -220,7 +223,9 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
 
     previous_stocks = current_stocks
 
-# Results
+# -----------------------------
+# RESULTS
+# -----------------------------
 result = pd.DataFrame(
     portfolio_returns
 )
@@ -270,6 +275,68 @@ total_return = (
     equity.iloc[-1] - 1
 )
 
+# -----------------------------
+# YEARLY RETURNS
+# -----------------------------
+yearly_returns = (
+    (1 + result["Return"])
+    .groupby(result.index.year)
+    .prod()
+    - 1
+)
+
+best_year = yearly_returns.idxmax()
+worst_year = yearly_returns.idxmin()
+
+# -----------------------------
+# BENCHMARK: NIFTY 500
+# -----------------------------
+print()
+print("Downloading NIFTY 500 benchmark...")
+
+benchmark = yf.download(
+    "^CRSLDX",
+    start=result.index[0],
+    end=result.index[-1] + pd.Timedelta(days=31),
+    auto_adjust=True,
+    progress=False
+)
+
+if not benchmark.empty:
+
+    if isinstance(benchmark.columns, pd.MultiIndex):
+        benchmark_close = benchmark["Close"].squeeze()
+    else:
+        benchmark_close = benchmark["Close"]
+
+    benchmark_close = benchmark_close.dropna()
+
+    benchmark_return = (
+        benchmark_close.iloc[-1]
+        / benchmark_close.iloc[0]
+        - 1
+    )
+
+    benchmark_years = (
+        benchmark_close.index[-1]
+        - benchmark_close.index[0]
+    ).days / 365.25
+
+    benchmark_cagr = (
+        (benchmark_close.iloc[-1]
+         / benchmark_close.iloc[0])
+        ** (1 / benchmark_years)
+        - 1
+    )
+
+else:
+
+    benchmark_return = np.nan
+    benchmark_cagr = np.nan
+
+# -----------------------------
+# SAVE
+# -----------------------------
 result["Equity"] = equity
 result["Drawdown"] = drawdown
 
@@ -277,6 +344,13 @@ result.to_csv(
     "nifty500_robust_top15_backtest.csv"
 )
 
+yearly_returns.to_csv(
+    "yearly_returns.csv"
+)
+
+# -----------------------------
+# PRINT MAIN RESULT
+# -----------------------------
 print()
 print("================================")
 print("ROBUST TOP-15 BACKTEST RESULT")
@@ -289,45 +363,58 @@ print(
     f"{result.index[-1].date()}"
 )
 
-print(
-    f"Total return: "
-    f"{total_return:.2%}"
-)
+print(f"Total return: {total_return:.2%}")
+print(f"CAGR: {cagr:.2%}")
+print(f"Annual volatility: {annual_volatility:.2%}")
+print(f"Sharpe ratio: {sharpe:.2f}")
+print(f"Maximum drawdown: {max_drawdown:.2%}")
+print(f"Winning months: {win_rate:.2%}")
+print(f"Months tested: {len(result)}")
 
-print(
-    f"CAGR: "
-    f"{cagr:.2%}"
-)
+# -----------------------------
+# YEARLY PERFORMANCE
+# -----------------------------
+print()
+print("YEAR-BY-YEAR RETURNS")
+print("=====================")
 
-print(
-    f"Annual volatility: "
-    f"{annual_volatility:.2%}"
-)
-
-print(
-    f"Sharpe ratio: "
-    f"{sharpe:.2f}"
-)
-
-print(
-    f"Maximum drawdown: "
-    f"{max_drawdown:.2%}"
-)
-
-print(
-    f"Winning months: "
-    f"{win_rate:.2%}"
-)
-
-print(
-    f"Months tested: "
-    f"{len(result)}"
-)
+for year, value in yearly_returns.items():
+    print(f"{year}: {value:.2%}")
 
 print()
-print(
-    "Saved: "
-    "nifty500_robust_top15_backtest.csv"
-)
+print(f"Best year: {best_year} ({yearly_returns[best_year]:.2%})")
+print(f"Worst year: {worst_year} ({yearly_returns[worst_year]:.2%})")
 
+# -----------------------------
+# BENCHMARK
+# -----------------------------
+print()
+print("BENCHMARK COMPARISON")
+print("====================")
+
+if not np.isnan(benchmark_cagr):
+
+    print(
+        f"Nifty 500 CAGR: "
+        f"{benchmark_cagr:.2%}"
+    )
+
+    print(
+        f"Strategy CAGR: "
+        f"{cagr:.2%}"
+    )
+
+    print(
+        f"CAGR advantage: "
+        f"{cagr - benchmark_cagr:.2%}"
+    )
+
+else:
+
+    print("Nifty 500 benchmark data unavailable.")
+
+print()
+print("Saved:")
+print("nifty500_robust_top15_backtest.csv")
+print("yearly_returns.csv")
 print("BACKTEST COMPLETE")
