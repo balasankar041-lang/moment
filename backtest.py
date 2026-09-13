@@ -1,182 +1,75 @@
-import pandas as pd
-import numpy as np
-import yfinance as yf
+
+import logging
+import warnings
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
 
 # ============================================================
 # SETTINGS
 # ============================================================
-
 MEMBERSHIP_FILE = "nifty500_membership_timeline.csv"
-
 TOP_N = 15
 
-W3 = 0.20
-W6 = 0.30
-W12 = 0.50
-
-TRADING_COST = 0.005   # 0.50% of turnover
-
+W3, W6, W12 = 0.20, 0.30, 0.50
+TRADING_COST = 0.005          # 0.50% of turnover
 MIN_HISTORY_MONTHS = 36
 MIN_VOL_DAYS = 200
+BATCH_SIZE = 25
+RETRIES = 3
 
+# Keep Yahoo's noisy warnings out of the Actions log.
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+logging.getLogger("peewee").setLevel(logging.CRITICAL)
+warnings.filterwarnings("ignore")
 
 # ============================================================
-# LOAD HISTORICAL NIFTY 500 MEMBERSHIP
+# LOAD MEMBERSHIP
 # ============================================================
-
 membership = pd.read_csv(MEMBERSHIP_FILE)
-
-membership["effective_date"] = pd.to_datetime(
-    membership["effective_date"]
-)
-
-membership["symbol"] = (
-    membership["symbol"]
-    .astype(str)
-    .str.strip()
-    .str.upper()
-)
-
-membership = membership.dropna(
-    subset=["effective_date", "symbol"]
-)
-
-membership = membership.sort_values(
-    ["effective_date", "symbol"]
-)
+membership["effective_date"] = pd.to_datetime(membership["effective_date"], errors="coerce")
+membership["symbol"] = membership["symbol"].astype(str).str.strip().str.upper()
+membership = membership.dropna(subset=["effective_date"])
+membership = membership[membership["symbol"].str.match(r"^[A-Z0-9]+$")]
+membership = membership.drop_duplicates(["effective_date", "symbol"])
+membership = membership.sort_values(["effective_date", "symbol"])
 
 print("\nHISTORICAL MEMBERSHIP")
 print("=====================")
 print("Records:", len(membership))
-print(
-    "Snapshots:",
-    membership["effective_date"].nunique()
-)
-print(
-    "Date range:",
-    membership["effective_date"].min().date(),
-    "to",
-    membership["effective_date"].max().date()
-)
-
-
-# ============================================================
-# CONVERT NSE SYMBOL TO YAHOO SYMBOL
-# ============================================================
+print("Snapshots:", membership["effective_date"].nunique())
+print("Date range:", membership["effective_date"].min().date(), "to", membership["effective_date"].max().date())
 
 def yahoo_symbol(symbol):
-    """
-    Basic NSE -> Yahoo Finance conversion.
-
-    Historical ticker changes are not automatically guessed.
-    """
-    if not symbol:
-        return None
-
-    symbol = str(symbol).strip().upper()
-
-    # Remove common unwanted characters
-    if not symbol.isalpha():
-        return None
-
-    if len(symbol) > 20:
-        return None
-
-    return symbol + ".NS"
-
-
-# ============================================================
-# GET HISTORICAL MEMBERS FOR A DATE
-# ============================================================
+    # Historical symbols are used as recorded. We deliberately do NOT
+    # guess merger/name changes because that can create false history.
+    return f"{symbol}.NS"
 
 def members_at_date(date):
-    """
-    Use the latest available historical Nifty 500 snapshot
-    on or before the rebalance date.
-    """
-
-    available = membership[
-        membership["effective_date"] <= date
-    ]
-
+    available = membership[membership["effective_date"] <= date]
     if available.empty:
         return []
-
-    latest_date = available["effective_date"].max()
-
-    symbols = available.loc[
-        available["effective_date"] == latest_date,
-        "symbol"
-    ].tolist()
-
-    result = []
-
-    for symbol in symbols:
-        yahoo = yahoo_symbol(symbol)
-
-        if yahoo:
-            result.append(yahoo)
-
-    return sorted(set(result))
-
+    latest = available["effective_date"].max()
+    return sorted(set(yahoo_symbol(s) for s in available.loc[
+        available["effective_date"] == latest, "symbol"
+    ]))
 
 # ============================================================
-# GET DATE RANGE
+# DOWNLOAD PRICES
 # ============================================================
+download_start = membership["effective_date"].min() - pd.DateOffset(years=2)
+download_end = pd.Timestamp.today().normalize() + pd.Timedelta(days=1)
 
-latest_membership_date = membership["effective_date"].max()
-
-download_start = (
-    membership["effective_date"].min()
-    - pd.DateOffset(years=2)
-)
-
-download_end = (
-    pd.Timestamp.today()
-    + pd.Timedelta(days=1)
-)
+symbols = sorted(set(yahoo_symbol(s) for s in membership["symbol"]))
 
 print("\nDownloading price data...")
-print(
-    "Price period:",
-    download_start.date(),
-    "to",
-    download_end.date()
-)
+print("Price period:", download_start.date(), "to", download_end.date())
+print("Historical symbols:", len(symbols))
 
-
-# ============================================================
-# COLLECT ALL HISTORICAL SYMBOLS
-# ============================================================
-
-all_symbols = sorted(
-    set(
-        yahoo_symbol(s)
-        for s in membership["symbol"]
-        if yahoo_symbol(s) is not None
-    )
-)
-
-print("Historical symbols:", len(all_symbols))
-
-
-# ============================================================
-# DOWNLOAD PRICES IN BATCHES
-# ============================================================
-
-def download_prices(symbols, batch_size=50):
-
-    frames = []
-
-    for i in range(0, len(symbols), batch_size):
-
-        batch = symbols[i:i + batch_size]
-
-        print(
-            f"Downloading {i + 1}-{min(i + batch_size, len(symbols))}"
-        )
-
+def download_batch(batch):
+    for attempt in range(1, RETRIES + 1):
         try:
             data = yf.download(
                 batch,
@@ -184,483 +77,202 @@ def download_prices(symbols, batch_size=50):
                 end=download_end.strftime("%Y-%m-%d"),
                 auto_adjust=True,
                 progress=False,
-                threads=True
+                threads=False,
+                group_by="column",
             )
-
-            if data.empty:
-                continue
-
-            if isinstance(data.columns, pd.MultiIndex):
-
-                if "Close" in data.columns.levels[0]:
-                    close = data["Close"]
+            if data is not None and not data.empty:
+                if isinstance(data.columns, pd.MultiIndex):
+                    if "Close" not in data.columns.get_level_values(0):
+                        return pd.DataFrame()
+                    close = data["Close"].copy()
                 else:
-                    continue
+                    if "Close" not in data.columns:
+                        return pd.DataFrame()
+                    close = data[["Close"]].copy()
+                    close.columns = [batch[0]]
+                return close
+        except Exception:
+            pass
+    return pd.DataFrame()
 
-            else:
-                if "Close" not in data.columns:
-                    continue
+frames = []
+for i in range(0, len(symbols), BATCH_SIZE):
+    batch = symbols[i:i+BATCH_SIZE]
+    print(f"Downloading {i+1}-{min(i+BATCH_SIZE, len(symbols))}")
+    frame = download_batch(batch)
+    if not frame.empty:
+        frames.append(frame)
 
-                close = data[["Close"]]
-                close.columns = [batch[0]]
+if not frames:
+    raise RuntimeError("No Yahoo Finance price data was downloaded.")
 
-            frames.append(close)
+prices = pd.concat(frames, axis=1, sort=True)
+prices = prices.loc[:, ~prices.columns.duplicated()]
+prices = prices.sort_index()
 
-        except Exception as e:
-            print("Batch error:", e)
-
-    if not frames:
-        return pd.DataFrame()
-
-    prices = pd.concat(frames, axis=1)
-
-    prices = prices.loc[
-        :,
-        ~prices.columns.duplicated()
-    ]
-
-    prices = prices.sort_index()
-
-    return prices
-
-
-prices = download_prices(all_symbols)
+# IMPORTANT: remove columns that contain no actual price history.
+prices = prices.dropna(axis=1, how="all")
 
 print("\nPRICE DATA")
 print("==========")
-print("Stocks with data:", prices.shape[1])
-print(
-    "Trading days:",
-    len(prices)
-)
-
+print("Stocks with actual data:", prices.shape[1])
+print("Trading days:", len(prices))
+print("Last available trading day:", prices.index.max().date())
 
 # ============================================================
-# MONTH-END PRICES
+# USE ONLY COMPLETED MONTHS
 # ============================================================
+last_trading_day = prices.index.max().normalize()
+
+# Do not label an incomplete current month as a future month-end.
+last_complete_month = (
+    last_trading_day.to_period("M") - 1
+).to_timestamp("M")
 
 monthly_prices = prices.resample("ME").last()
+monthly_prices = monthly_prices.loc[monthly_prices.index <= last_complete_month]
+monthly_prices = monthly_prices.dropna(axis=0, how="all")
 
-monthly_returns = monthly_prices.pct_change()
-
+print("Last completed month:", monthly_prices.index.max().date())
 
 # ============================================================
-# MOMENTUM SCORE
+# MOMENTUM
 # ============================================================
-
 def momentum_score(symbol, date):
-
-    try:
-
-        daily = prices[symbol].dropna()
-
-        if daily.empty:
-            return None
-
-        # Need approximately 12 months of daily data
-        past_12m = daily.loc[
-            date - pd.DateOffset(months=12):date
-        ]
-
-        if len(past_12m) < MIN_VOL_DAYS:
-            return None
-
-        # Need monthly prices
-        if date not in monthly_prices.index:
-            return None
-
-        current_price = monthly_prices.loc[
-            date, symbol
-        ]
-
-        if pd.isna(current_price) or current_price <= 0:
-            return None
-
-        # 3 month
-        d3 = date - pd.DateOffset(months=3)
-
-        # 6 month
-        d6 = date - pd.DateOffset(months=6)
-
-        # 12 month
-        d12 = date - pd.DateOffset(months=12)
-
-        previous_3 = monthly_prices.loc[
-            monthly_prices.index <= d3, symbol
-        ].dropna()
-
-        previous_6 = monthly_prices.loc[
-            monthly_prices.index <= d6, symbol
-        ].dropna()
-
-        previous_12 = monthly_prices.loc[
-            monthly_prices.index <= d12, symbol
-        ].dropna()
-
-        if (
-            previous_3.empty
-            or previous_6.empty
-            or previous_12.empty
-        ):
-            return None
-
-        p3 = previous_3.iloc[-1]
-        p6 = previous_6.iloc[-1]
-        p12 = previous_12.iloc[-1]
-
-        if min(p3, p6, p12) <= 0:
-            return None
-
-        r3 = current_price / p3 - 1
-        r6 = current_price / p6 - 1
-        r12 = current_price / p12 - 1
-
-        # Annualized volatility
-        daily_returns = past_12m.pct_change().dropna()
-
-        if len(daily_returns) < MIN_VOL_DAYS - 1:
-            return None
-
-        volatility = (
-            daily_returns.std() * np.sqrt(252)
-        )
-
-        if (
-            pd.isna(volatility)
-            or volatility <= 0
-        ):
-            return None
-
-        # Composite momentum
-        momentum = (
-            W3 * r3
-            + W6 * r6
-            + W12 * r12
-        )
-
-        # Positive momentum only
-        if momentum <= 0:
-            return None
-
-        # Risk-adjusted momentum
-        score = momentum / volatility
-
-        return score
-
-    except Exception:
+    if symbol not in prices.columns or date not in monthly_prices.index:
         return None
 
+    daily = prices[symbol].dropna()
+    if daily.empty:
+        return None
+
+    past_12m = daily.loc[date - pd.DateOffset(months=12):date]
+    if len(past_12m) < MIN_VOL_DAYS:
+        return None
+
+    current = monthly_prices.loc[date, symbol]
+    if pd.isna(current) or current <= 0:
+        return None
+
+    def prior_price(months):
+        target = date - pd.DateOffset(months=months)
+        x = monthly_prices.loc[monthly_prices.index <= target, symbol].dropna()
+        return None if x.empty else x.iloc[-1]
+
+    p3, p6, p12 = prior_price(3), prior_price(6), prior_price(12)
+    if p3 is None or p6 is None or p12 is None:
+        return None
+    if min(p3, p6, p12) <= 0:
+        return None
+
+    r3, r6, r12 = current/p3 - 1, current/p6 - 1, current/p12 - 1
+
+    daily_returns = past_12m.pct_change().dropna()
+    if len(daily_returns) < MIN_VOL_DAYS - 1:
+        return None
+
+    vol = daily_returns.std() * np.sqrt(252)
+    if pd.isna(vol) or vol <= 0:
+        return None
+
+    momentum = W3*r3 + W6*r6 + W12*r12
+    if momentum <= 0:
+        return None
+
+    return momentum / vol
 
 # ============================================================
 # BACKTEST
 # ============================================================
+rebalance_dates = list(monthly_prices.index)
+if not rebalance_dates:
+    raise RuntimeError("No completed monthly data available.")
 
-rebalance_dates = monthly_prices.index
+warmup_cutoff = rebalance_dates[0] + pd.DateOffset(months=MIN_HISTORY_MONTHS)
+rebalance_dates = [d for d in rebalance_dates if d >= warmup_cutoff]
 
 portfolio_value = 1.0
-
-portfolio_values = []
-
+equity = []
 previous_weights = {}
+rebalance_count = 0
+skipped = 0
 
-trade_count = 0
-
-start_date = (
-    rebalance_dates[0]
-    + pd.DateOffset(months=MIN_HISTORY_MONTHS)
-)
-
-rebalance_dates = [
-    d for d in rebalance_dates
-    if d >= start_date
-]
-
-
-print("\nBACKTEST")
-print("========")
-print(
-    "Rebalance dates:",
-    len(rebalance_dates)
-)
-
-for date in rebalance_dates:
-
+for i, date in enumerate(rebalance_dates[:-1]):
     historical_members = members_at_date(date)
-
-    if not historical_members:
-        continue
-
-    candidates = [
-        s for s in historical_members
-        if s in prices.columns
-    ]
+    candidates = [s for s in historical_members if s in prices.columns]
 
     scores = {}
-
     for symbol in candidates:
-
-        score = momentum_score(
-            symbol,
-            date
-        )
-
-        if score is not None:
+        score = momentum_score(symbol, date)
+        if score is not None and np.isfinite(score):
             scores[symbol] = score
 
     if len(scores) < TOP_N:
+        skipped += 1
         continue
 
-    ranked = sorted(
-        scores.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
-
     selected = [
-        symbol
-        for symbol, score in ranked[:TOP_N]
+        s for s, _ in sorted(scores.items(), key=lambda x: x[1], reverse=True)[:TOP_N]
     ]
+    weight = 1.0 / len(selected)
+    new_weights = {s: weight for s in selected}
 
-    # Equal weight
-    new_weight = 1.0 / len(selected)
-
-    new_weights = {
-        symbol: new_weight
-        for symbol in selected
-    }
-
-    # ========================================================
-    # TURNOVER
-    # ========================================================
-
-    all_symbols_weights = set(
-        previous_weights
-    ) | set(new_weights)
-
-    turnover = 0.0
-
-    for symbol in all_symbols_weights:
-
-        old_w = previous_weights.get(
-            symbol, 0.0
-        )
-
-        new_w = new_weights.get(
-            symbol, 0.0
-        )
-
-        turnover += abs(
-            new_w - old_w
-        )
-
-    # Half-turnover convention:
-    # turnover is already sum(abs changes).
-    transaction_cost = (
-        turnover * TRADING_COST
+    # Sum of absolute weight changes = turnover.
+    turnover = sum(
+        abs(new_weights.get(s, 0.0) - previous_weights.get(s, 0.0))
+        for s in set(previous_weights) | set(new_weights)
     )
+    portfolio_value *= (1.0 - turnover * TRADING_COST)
 
-    portfolio_value *= (
-        1 - transaction_cost
-    )
+    next_date = rebalance_dates[i + 1]
+    period_return = 0.0
 
-    # ========================================================
-    # HOLD UNTIL NEXT MONTH
-    # ========================================================
+    for symbol, w in new_weights.items():
+        if symbol not in monthly_prices.columns:
+            continue
+        p0 = monthly_prices.loc[date, symbol]
+        p1 = monthly_prices.loc[next_date, symbol]
+        if pd.notna(p0) and pd.notna(p1) and p0 > 0:
+            period_return += w * (p1/p0 - 1.0)
 
-    current_index = rebalance_dates.index(date)
-
-    if current_index + 1 < len(rebalance_dates):
-
-        next_date = rebalance_dates[
-            current_index + 1
-        ]
-
-        period_return = 0.0
-
-        for symbol, weight in new_weights.items():
-
-            if (
-                symbol not in monthly_prices.columns
-            ):
-                continue
-
-            try:
-
-                p0 = monthly_prices.loc[
-                    date, symbol
-                ]
-
-                p1 = monthly_prices.loc[
-                    next_date, symbol
-                ]
-
-                if (
-                    pd.isna(p0)
-                    or pd.isna(p1)
-                    or p0 <= 0
-                ):
-                    continue
-
-                stock_return = (
-                    p1 / p0 - 1
-                )
-
-                period_return += (
-                    weight * stock_return
-                )
-
-            except Exception:
-                continue
-
-        portfolio_value *= (
-            1 + period_return
-        )
-
-        portfolio_values.append(
-            (
-                next_date,
-                portfolio_value
-            )
-        )
-
+    portfolio_value *= (1.0 + period_return)
+    equity.append((next_date, portfolio_value))
     previous_weights = new_weights
+    rebalance_count += 1
 
-    trade_count += 1
+if not equity:
+    raise RuntimeError("No backtest results were generated.")
 
+equity = pd.Series(dict(equity)).sort_index()
+returns = equity.pct_change().dropna()
 
-# ============================================================
-# RESULTS
-# ============================================================
+start_value, end_value = equity.iloc[0], equity.iloc[-1]
+years = max((equity.index[-1] - equity.index[0]).days / 365.25, 1/12)
 
-if not portfolio_values:
-
-    print("\nNo backtest results generated.")
-    raise SystemExit
-
-
-equity = pd.Series(
-    dict(portfolio_values)
-).sort_index()
-
-monthly_equity_returns = equity.pct_change().dropna()
-
-start_value = equity.iloc[0]
-end_value = equity.iloc[-1]
-
-years = (
-    equity.index[-1]
-    - equity.index[0]
-).days / 365.25
-
-if years <= 0:
-    years = 1
-
-total_return = (
-    end_value / start_value - 1
-)
-
-cagr = (
-    (end_value / start_value)
-    ** (1 / years)
-    - 1
-)
-
-annual_volatility = (
-    monthly_equity_returns.std()
-    * np.sqrt(12)
-)
-
-if annual_volatility > 0:
-
-    sharpe = (
-        monthly_equity_returns.mean()
-        * 12
-        / annual_volatility
-    )
-
-else:
-    sharpe = np.nan
-
-rolling_max = equity.cummax()
-
-drawdown = (
-    equity / rolling_max - 1
-)
-
+total_return = end_value / start_value - 1
+cagr = (end_value / start_value) ** (1/years) - 1
+annual_vol = returns.std() * np.sqrt(12)
+sharpe = (returns.mean() * 12 / annual_vol) if annual_vol > 0 else np.nan
+drawdown = equity / equity.cummax() - 1
 max_drawdown = drawdown.min()
-
-winning_months = (
-    (monthly_equity_returns > 0).mean()
-)
-
-
-# ============================================================
-# PRINT RESULTS
-# ============================================================
+winning_months = (returns > 0).mean()
 
 print("\n")
 print("NIFTY 500 HISTORICAL-MEMBERSHIP")
 print("RISK-ADJUSTED TOP-15 BACKTEST")
 print("======================================")
-
-print(
-    "Backtest period:",
-    equity.index[0].date(),
-    "to",
-    equity.index[-1].date()
-)
-
-print(
-    "Top stocks:",
-    TOP_N
-)
-
-print(
-    "Momentum:",
-    "20% 3M + 30% 6M + 50% 12M"
-)
-
-print(
-    "Risk adjustment:",
-    "Momentum / annualized volatility"
-)
-
-print(
-    "Trading cost:",
-    f"{TRADING_COST * 100:.2f}%"
-)
-
-print(
-    "Rebalances:",
-    trade_count
-)
-
-print(
-    f"Total return: {total_return * 100:.2f}%"
-)
-
-print(
-    f"CAGR: {cagr * 100:.2f}%"
-)
-
-print(
-    f"Annual volatility: {annual_volatility * 100:.2f}%"
-)
-
-print(
-    f"Sharpe ratio: {sharpe:.2f}"
-)
-
-print(
-    f"Maximum drawdown: {max_drawdown * 100:.2f}%"
-)
-
-print(
-    f"Winning months: {winning_months * 100:.2f}%"
-)
-
-print(
-    f"Months tested: {len(monthly_equity_returns)}"
-)
-
+print("Backtest period:", equity.index[0].date(), "to", equity.index[-1].date())
+print("Top stocks:", TOP_N)
+print("Momentum: 20% 3M + 30% 6M + 50% 12M")
+print("Risk adjustment: Momentum / annualized volatility")
+print(f"Trading cost: {TRADING_COST*100:.2f}%")
+print("Rebalances:", rebalance_count)
+print("Skipped months:", skipped)
+print(f"Total return: {total_return*100:.2f}%")
+print(f"CAGR: {cagr*100:.2f}%")
+print(f"Annual volatility: {annual_vol*100:.2f}%")
+print(f"Sharpe ratio: {sharpe:.2f}")
+print(f"Maximum drawdown: {max_drawdown*100:.2f}%")
+print(f"Winning months: {winning_months*100:.2f}%")
+print(f"Months tested: {len(returns)}")
 print("\nBACKTEST COMPLETE")
