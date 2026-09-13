@@ -4,14 +4,21 @@ import numpy as np
 
 TOP_N = 15
 YEARS = 10
-COSTS = [0.0015, 0.0030, 0.0050, 0.0100]
+TRADING_COST = 0.005
 MIN_HISTORY_MONTHS = 36
 
-print("NIFTY 500 TOP-15 COST STRESS TEST")
-print("=================================")
+TRAIN_END = "2023-12-31"
+TEST_START = "2024-01-01"
+
+print("NIFTY 500 OUT-OF-SAMPLE BACKTEST")
+print("================================")
+print("Training: 2019-2023")
+print("Testing : 2024-2026")
+print(f"Portfolio: Top {TOP_N}")
+print(f"Trading cost: {TRADING_COST:.2%}")
 
 # -----------------------------
-# NIFTY 500
+# NIFTY 500 UNIVERSE
 # -----------------------------
 url = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
 
@@ -37,11 +44,10 @@ symbols = [
 symbols = list(dict.fromkeys(symbols))
 
 print(f"Universe candidates: {len(symbols)}")
-print(f"Portfolio: Top {TOP_N}")
 print("Downloading data...")
 
 # -----------------------------
-# DOWNLOAD
+# DOWNLOAD IN BATCHES
 # -----------------------------
 all_data = []
 BATCH_SIZE = 50
@@ -117,151 +123,172 @@ if len(prices.columns) < 450:
 monthly = prices.resample("ME").last()
 
 # -----------------------------
-# RUN STRATEGY ONCE
+# STRATEGY FUNCTION
 # -----------------------------
-raw_returns = []
-previous_stocks = set()
+def run_backtest(start_date, end_date):
 
-for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
-
-    current = monthly.iloc[i]
-
-    p3 = monthly.iloc[i - 3]
-    p6 = monthly.iloc[i - 6]
-    p12 = monthly.iloc[i - 12]
-
-    ret3 = current / p3 - 1
-    ret6 = current / p6 - 1
-    ret12 = current / p12 - 1
-
-    daily = prices.loc[
-        monthly.index[i - 12]:
-        monthly.index[i]
+    data = monthly.loc[
+        :end_date
     ]
 
-    valid_days = daily.count()
+    returns = []
+    previous_stocks = set()
 
-    eligible = valid_days[
-        valid_days >= 200
-    ].index
+    for i in range(
+        MIN_HISTORY_MONTHS,
+        len(data) - 1
+    ):
 
-    if len(eligible) < TOP_N:
-        continue
+        current_date = data.index[i]
 
-    daily_returns = daily[eligible].pct_change()
+        if current_date < pd.Timestamp(start_date):
+            continue
 
-    vol = (
-        daily_returns.std()
-        * np.sqrt(252)
-    )
+        current = data.iloc[i]
 
-    score = (
-        0.20 * ret3 +
-        0.30 * ret6 +
-        0.50 * ret12
-    )
+        p3 = data.iloc[i - 3]
+        p6 = data.iloc[i - 6]
+        p12 = data.iloc[i - 12]
 
-    score = score / vol
+        ret3 = current / p3 - 1
+        ret6 = current / p6 - 1
+        ret12 = current / p12 - 1
 
-    score = score.replace(
-        [np.inf, -np.inf],
-        np.nan
-    ).dropna()
+        daily = prices.loc[
+            data.index[i - 12]:
+            data.index[i]
+        ]
 
-    score = score[score > 0]
+        valid_days = daily.count()
 
-    if len(score) < TOP_N:
-        continue
+        eligible = valid_days[
+            valid_days >= 200
+        ].index
 
-    selected = score.nlargest(TOP_N).index
+        if len(eligible) < TOP_N:
+            continue
 
-    next_month = monthly.iloc[i + 1]
+        daily_returns = (
+            daily[eligible].pct_change()
+        )
 
-    stock_returns = (
-        next_month[selected]
-        / current[selected]
-        - 1
-    ).dropna()
+        vol = (
+            daily_returns.std()
+            * np.sqrt(252)
+        )
 
-    if len(stock_returns) < 10:
-        continue
+        # Fixed strategy parameters
+        score = (
+            0.20 * ret3 +
+            0.30 * ret6 +
+            0.50 * ret12
+        )
 
-    portfolio_return = stock_returns.mean()
+        score = score / vol
 
-    current_stocks = set(
-        stock_returns.index
-    )
+        score = score.replace(
+            [np.inf, -np.inf],
+            np.nan
+        ).dropna()
 
-    turnover = 0.0
+        score = score[score > 0]
 
-    if previous_stocks:
+        if len(score) < TOP_N:
+            continue
 
-        changed = len(
-            current_stocks.symmetric_difference(
-                previous_stocks
+        selected = score.nlargest(
+            TOP_N
+        ).index
+
+        next_month = data.iloc[i + 1]
+
+        stock_returns = (
+            next_month[selected]
+            / current[selected]
+            - 1
+        ).dropna()
+
+        if len(stock_returns) < 10:
+            continue
+
+        portfolio_return = (
+            stock_returns.mean()
+        )
+
+        current_stocks = set(
+            stock_returns.index
+        )
+
+        turnover = 0
+
+        if previous_stocks:
+
+            changed = len(
+                current_stocks.symmetric_difference(
+                    previous_stocks
+                )
             )
-        )
 
-        turnover = (
-            changed / (2 * TOP_N)
-        )
+            turnover = (
+                changed /
+                (2 * TOP_N)
+            )
 
-    raw_returns.append({
-        "Date": monthly.index[i + 1],
-        "GrossReturn": portfolio_return,
-        "Turnover": turnover
-    })
+            portfolio_return -= (
+                turnover *
+                TRADING_COST
+            )
 
-    previous_stocks = current_stocks
+        returns.append({
+            "Date": data.index[i + 1],
+            "Return": portfolio_return
+        })
 
-raw = pd.DataFrame(raw_returns)
+        previous_stocks = current_stocks
 
-if raw.empty:
-    raise RuntimeError(
-        "Backtest produced no results."
-    )
+    result = pd.DataFrame(returns)
 
-raw = raw.set_index("Date")
+    if result.empty:
+        return None
 
-# -----------------------------
-# COST STRESS TEST
-# -----------------------------
-results = []
+    result = result.set_index("Date")
 
-print()
-print("================================")
-print("TRANSACTION COST STRESS TEST")
-print("================================")
+    # Keep only requested period
+    result = result[
+        result.index >=
+        pd.Timestamp(start_date)
+    ]
 
-for cost in COSTS:
+    result = result[
+        result.index <=
+        pd.Timestamp(end_date)
+    ]
 
-    returns = (
-        raw["GrossReturn"]
-        - raw["Turnover"] * cost
-    )
+    if result.empty:
+        return None
 
     equity = (
-        1 + returns
+        1 + result["Return"]
     ).cumprod()
 
-    years_tested = (
-        equity.index[-1]
-        - equity.index[0]
+    years = (
+        result.index[-1]
+        - result.index[0]
     ).days / 365.25
 
     cagr = (
         equity.iloc[-1]
-        ** (1 / years_tested)
+        ** (1 / years)
     ) - 1
 
     volatility = (
-        returns.std()
+        result["Return"].std()
         * np.sqrt(12)
     )
 
     sharpe = (
-        returns.mean()
-        / returns.std()
+        result["Return"].mean()
+        / result["Return"].std()
     ) * np.sqrt(12)
 
     drawdown = (
@@ -272,80 +299,193 @@ for cost in COSTS:
     max_drawdown = drawdown.min()
 
     win_rate = (
-        returns > 0
+        result["Return"] > 0
     ).mean()
 
     total_return = (
         equity.iloc[-1] - 1
     )
 
-    results.append({
-        "Trading cost": cost,
+    return {
+        "result": result,
         "Total return": total_return,
         "CAGR": cagr,
         "Volatility": volatility,
         "Sharpe": sharpe,
         "Max drawdown": max_drawdown,
         "Winning months": win_rate
-    })
+    }
 
 # -----------------------------
-# PRINT
+# TRAINING PERIOD
 # -----------------------------
-table = pd.DataFrame(results)
+print()
+print("Running training period...")
 
-for _, row in table.iterrows():
+train = run_backtest(
+    "2019-10-31",
+    TRAIN_END
+)
 
-    print()
-    print(
-        f"Trading cost: "
-        f"{row['Trading cost']:.2%}"
+# -----------------------------
+# TEST PERIOD
+# -----------------------------
+print()
+print("Running unseen test period...")
+
+test = run_backtest(
+    TEST_START,
+    "2026-12-31"
+)
+
+if train is None:
+    raise RuntimeError(
+        "Training period produced no results."
     )
 
-    print(
-        f"Total return: "
-        f"{row['Total return']:.2%}"
+if test is None:
+    raise RuntimeError(
+        "Test period produced no results."
     )
 
-    print(
-        f"CAGR: "
-        f"{row['CAGR']:.2%}"
-    )
+# -----------------------------
+# PRINT RESULTS
+# -----------------------------
+print()
+print("================================")
+print("TRAINING RESULT")
+print("================================")
 
-    print(
-        f"Annual volatility: "
-        f"{row['Volatility']:.2%}"
-    )
+print(
+    f"Period: "
+    f"{train['result'].index[0].date()} "
+    f"to "
+    f"{train['result'].index[-1].date()}"
+)
 
-    print(
-        f"Sharpe ratio: "
-        f"{row['Sharpe']:.2f}"
-    )
+print(
+    f"Total return: "
+    f"{train['Total return']:.2%}"
+)
 
-    print(
-        f"Maximum drawdown: "
-        f"{row['Max drawdown']:.2%}"
-    )
+print(
+    f"CAGR: "
+    f"{train['CAGR']:.2%}"
+)
 
-    print(
-        f"Winning months: "
-        f"{row['Winning months']:.2%}"
-    )
+print(
+    f"Annual volatility: "
+    f"{train['Volatility']:.2%}"
+)
+
+print(
+    f"Sharpe ratio: "
+    f"{train['Sharpe']:.2f}"
+)
+
+print(
+    f"Maximum drawdown: "
+    f"{train['Max drawdown']:.2%}"
+)
+
+print(
+    f"Winning months: "
+    f"{train['Winning months']:.2%}"
+)
+
+print()
+print("================================")
+print("UNSEEN TEST RESULT")
+print("================================")
+
+print(
+    f"Period: "
+    f"{test['result'].index[0].date()} "
+    f"to "
+    f"{test['result'].index[-1].date()}"
+)
+
+print(
+    f"Total return: "
+    f"{test['Total return']:.2%}"
+)
+
+print(
+    f"CAGR: "
+    f"{test['CAGR']:.2%}"
+)
+
+print(
+    f"Annual volatility: "
+    f"{test['Volatility']:.2%}"
+)
+
+print(
+    f"Sharpe ratio: "
+    f"{test['Sharpe']:.2f}"
+)
+
+print(
+    f"Maximum drawdown: "
+    f"{test['Max drawdown']:.2%}"
+)
+
+print(
+    f"Winning months: "
+    f"{test['Winning months']:.2%}"
+)
+
+# -----------------------------
+# COMPARISON
+# -----------------------------
+print()
+print("================================")
+print("TRAINING vs TEST")
+print("================================")
+
+print(
+    f"Training CAGR: "
+    f"{train['CAGR']:.2%}"
+)
+
+print(
+    f"Test CAGR: "
+    f"{test['CAGR']:.2%}"
+)
+
+print(
+    f"Training Sharpe: "
+    f"{train['Sharpe']:.2f}"
+)
+
+print(
+    f"Test Sharpe: "
+    f"{test['Sharpe']:.2f}"
+)
+
+print(
+    f"Training Max DD: "
+    f"{train['Max drawdown']:.2%}"
+)
+
+print(
+    f"Test Max DD: "
+    f"{test['Max drawdown']:.2%}"
+)
 
 # -----------------------------
 # SAVE
 # -----------------------------
-table.to_csv(
-    "transaction_cost_stress_test.csv",
-    index=False
+train["result"].to_csv(
+    "training_results.csv"
 )
 
-raw.to_csv(
-    "raw_strategy_returns.csv"
+test["result"].to_csv(
+    "out_of_sample_results.csv"
 )
 
 print()
 print("Saved:")
-print("transaction_cost_stress_test.csv")
-print("raw_strategy_returns.csv")
-print("COST STRESS TEST COMPLETE")
+print("training_results.csv")
+print("out_of_sample_results.csv")
+print("OUT-OF-SAMPLE TEST COMPLETE")
