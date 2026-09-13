@@ -7,8 +7,8 @@ YEARS = 10
 TRADING_COST = 0.0015
 MIN_HISTORY_MONTHS = 36
 
-print("NIFTY 500 ROBUST TOP-15 BACKTEST")
-print("================================")
+print("NIFTY 500 TOP-15 CONCENTRATION BACKTEST")
+print("=======================================")
 
 # -----------------------------
 # NIFTY 500 UNIVERSE
@@ -42,7 +42,7 @@ print(f"Portfolio: Top {TOP_N}")
 print("Downloading data...")
 
 # -----------------------------
-# DOWNLOAD IN BATCHES
+# DOWNLOAD DATA
 # -----------------------------
 all_data = []
 BATCH_SIZE = 50
@@ -116,12 +116,19 @@ if len(prices.columns) < 450:
     )
 
 # -----------------------------
-# MONTHLY PRICES
+# MONTHLY DATA
 # -----------------------------
 monthly = prices.resample("ME").last()
 
 portfolio_returns = []
 previous_stocks = set()
+
+# Stock statistics
+stock_stats = {}
+
+total_turnover = 0
+rebalance_count = 0
+replacement_count = 0
 
 # -----------------------------
 # BACKTEST
@@ -154,6 +161,9 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
     if len(eligible) < TOP_N:
         continue
 
+    # -----------------------------
+    # VOLATILITY
+    # -----------------------------
     daily_returns = daily[eligible].pct_change()
 
     vol = (
@@ -161,7 +171,9 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
         * np.sqrt(252)
     )
 
-    # Risk-adjusted momentum
+    # -----------------------------
+    # RISK-ADJUSTED MOMENTUM
+    # -----------------------------
     score = (
         0.20 * ret3 +
         0.30 * ret6 +
@@ -195,7 +207,50 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
 
     portfolio_return = stock_returns.mean()
 
-    # Transaction costs
+    # -----------------------------
+    # STOCK STATISTICS
+    # -----------------------------
+    for stock in stock_returns.index:
+
+        if stock not in stock_stats:
+            stock_stats[stock] = {
+                "months_held": 0,
+                "gross_contribution": 0.0,
+                "positive_months": 0,
+                "negative_months": 0,
+                "best_month": -999.0,
+                "worst_month": 999.0
+            }
+
+        r = stock_returns[stock]
+
+        stock_stats[stock]["months_held"] += 1
+
+        # Equal-weight contribution
+        contribution = r / TOP_N
+
+        stock_stats[stock][
+            "gross_contribution"
+        ] += contribution
+
+        if r > 0:
+            stock_stats[stock]["positive_months"] += 1
+        else:
+            stock_stats[stock]["negative_months"] += 1
+
+        stock_stats[stock]["best_month"] = max(
+            stock_stats[stock]["best_month"],
+            r
+        )
+
+        stock_stats[stock]["worst_month"] = min(
+            stock_stats[stock]["worst_month"],
+            r
+        )
+
+    # -----------------------------
+    # TURNOVER
+    # -----------------------------
     current_stocks = set(
         stock_returns.index
     )
@@ -212,16 +267,21 @@ for i in range(MIN_HISTORY_MONTHS, len(monthly) - 1):
             changed / (2 * TOP_N)
         )
 
+        total_turnover += turnover
+        replacement_count += changed / 2
+
         portfolio_return -= (
             turnover * TRADING_COST
         )
+
+        rebalance_count += 1
+
+    previous_stocks = current_stocks
 
     portfolio_returns.append({
         "Date": monthly.index[i + 1],
         "Return": portfolio_return
     })
-
-    previous_stocks = current_stocks
 
 # -----------------------------
 # RESULTS
@@ -276,6 +336,35 @@ total_return = (
 )
 
 # -----------------------------
+# STOCK ANALYSIS
+# -----------------------------
+stats = pd.DataFrame.from_dict(
+    stock_stats,
+    orient="index"
+)
+
+stats.index.name = "Stock"
+
+stats["holding_percentage"] = (
+    stats["months_held"]
+    / len(result)
+)
+
+stats["positive_month_percentage"] = (
+    stats["positive_months"]
+    / stats["months_held"]
+)
+
+stats = stats.sort_values(
+    "gross_contribution",
+    ascending=False
+)
+
+stats.to_csv(
+    "stock_concentration_analysis.csv"
+)
+
+# -----------------------------
 # YEARLY RETURNS
 # -----------------------------
 yearly_returns = (
@@ -285,67 +374,18 @@ yearly_returns = (
     - 1
 )
 
-best_year = yearly_returns.idxmax()
-worst_year = yearly_returns.idxmin()
-
-# -----------------------------
-# BENCHMARK: NIFTY 500
-# -----------------------------
-print()
-print("Downloading NIFTY 500 benchmark...")
-
-benchmark = yf.download(
-    "^CRSLDX",
-    start=result.index[0],
-    end=result.index[-1] + pd.Timedelta(days=31),
-    auto_adjust=True,
-    progress=False
+yearly_returns.to_csv(
+    "yearly_returns.csv"
 )
 
-if not benchmark.empty:
-
-    if isinstance(benchmark.columns, pd.MultiIndex):
-        benchmark_close = benchmark["Close"].squeeze()
-    else:
-        benchmark_close = benchmark["Close"]
-
-    benchmark_close = benchmark_close.dropna()
-
-    benchmark_return = (
-        benchmark_close.iloc[-1]
-        / benchmark_close.iloc[0]
-        - 1
-    )
-
-    benchmark_years = (
-        benchmark_close.index[-1]
-        - benchmark_close.index[0]
-    ).days / 365.25
-
-    benchmark_cagr = (
-        (benchmark_close.iloc[-1]
-         / benchmark_close.iloc[0])
-        ** (1 / benchmark_years)
-        - 1
-    )
-
-else:
-
-    benchmark_return = np.nan
-    benchmark_cagr = np.nan
-
 # -----------------------------
-# SAVE
+# SAVE MAIN RESULT
 # -----------------------------
 result["Equity"] = equity
 result["Drawdown"] = drawdown
 
 result.to_csv(
-    "nifty500_robust_top15_backtest.csv"
-)
-
-yearly_returns.to_csv(
-    "yearly_returns.csv"
+    "nifty500_top15_concentration_backtest.csv"
 )
 
 # -----------------------------
@@ -353,7 +393,7 @@ yearly_returns.to_csv(
 # -----------------------------
 print()
 print("================================")
-print("ROBUST TOP-15 BACKTEST RESULT")
+print("BACKTEST RESULT")
 print("================================")
 
 print(
@@ -372,49 +412,63 @@ print(f"Winning months: {win_rate:.2%}")
 print(f"Months tested: {len(result)}")
 
 # -----------------------------
-# YEARLY PERFORMANCE
+# TURNOVER
+# -----------------------------
+if rebalance_count > 0:
+
+    average_turnover = (
+        total_turnover /
+        rebalance_count
+    )
+
+    print()
+    print("TURNOVER ANALYSIS")
+    print("=================")
+    print(
+        f"Rebalances: {rebalance_count}"
+    )
+    print(
+        f"Average monthly turnover: "
+        f"{average_turnover:.2%}"
+    )
+    print(
+        f"Estimated replacements: "
+        f"{replacement_count:.0f}"
+    )
+
+# -----------------------------
+# TOP STOCKS
+# -----------------------------
+print()
+print("TOP 20 STOCK CONTRIBUTIONS")
+print("===========================")
+
+for stock, row in stats.head(20).iterrows():
+
+    print(
+        f"{stock}: "
+        f"held {int(row['months_held'])} months | "
+        f"contribution "
+        f"{row['gross_contribution']:.2%} | "
+        f"positive months "
+        f"{row['positive_month_percentage']:.1%}"
+    )
+
+# -----------------------------
+# YEARLY RETURNS
 # -----------------------------
 print()
 print("YEAR-BY-YEAR RETURNS")
 print("=====================")
 
 for year, value in yearly_returns.items():
-    print(f"{year}: {value:.2%}")
-
-print()
-print(f"Best year: {best_year} ({yearly_returns[best_year]:.2%})")
-print(f"Worst year: {worst_year} ({yearly_returns[worst_year]:.2%})")
-
-# -----------------------------
-# BENCHMARK
-# -----------------------------
-print()
-print("BENCHMARK COMPARISON")
-print("====================")
-
-if not np.isnan(benchmark_cagr):
-
     print(
-        f"Nifty 500 CAGR: "
-        f"{benchmark_cagr:.2%}"
+        f"{year}: {value:.2%}"
     )
-
-    print(
-        f"Strategy CAGR: "
-        f"{cagr:.2%}"
-    )
-
-    print(
-        f"CAGR advantage: "
-        f"{cagr - benchmark_cagr:.2%}"
-    )
-
-else:
-
-    print("Nifty 500 benchmark data unavailable.")
 
 print()
 print("Saved:")
-print("nifty500_robust_top15_backtest.csv")
+print("nifty500_top15_concentration_backtest.csv")
+print("stock_concentration_analysis.csv")
 print("yearly_returns.csv")
 print("BACKTEST COMPLETE")
