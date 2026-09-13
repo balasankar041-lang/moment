@@ -2,89 +2,156 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-SYMBOLS = [
-    "RELIANCE.NS",
-    "HDFCBANK.NS",
-    "ICICIBANK.NS",
-    "INFY.NS",
-    "TCS.NS",
-    "SBIN.NS",
-    "ITC.NS",
-    "BHARTIARTL.NS",
-    "LT.NS",
-    "AXISBANK.NS",
-]
+TOP_N = 15
+YEARS = 10
+TRADING_COST = 0.0015
 
-print("10-YEAR MOMENTUM BACKTEST")
+print("NIFTY 500 TOP-15 BACKTEST")
 print("=========================")
 
+# Current Nifty 500 universe
+url = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
+
+universe = pd.read_csv(
+    url,
+    storage_options={"User-Agent": "Mozilla/5.0"}
+)
+
+symbols = (
+    universe["Symbol"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+    .str.upper()
+    .unique()
+)
+
+symbols = [s + ".NS" for s in symbols]
+
+print(f"Universe: {len(symbols)} stocks")
+print(f"History: {YEARS} years")
+print(f"Portfolio: Top {TOP_N}")
+print("Downloading data...")
+
 prices = yf.download(
-    SYMBOLS,
-    period="10y",
+    symbols,
+    period=f"{YEARS}y",
     auto_adjust=True,
     progress=False,
     threads=True
 )["Close"]
 
-prices = prices.dropna(axis=1, how="all").ffill()
+prices = prices.dropna(axis=1, how="all")
+prices = prices.ffill()
 
+print(f"Stocks with data: {len(prices.columns)}")
+
+# Monthly prices
 monthly = prices.resample("ME").last()
 
-returns = []
+portfolio_returns = []
+previous_stocks = set()
 
 for i in range(12, len(monthly) - 1):
 
     current = monthly.iloc[i]
-    previous = monthly.iloc[i - 12]
+    one_year_ago = monthly.iloc[i - 12]
 
-    momentum = (current / previous - 1).dropna()
+    momentum = (current / one_year_ago - 1).dropna()
 
-    if len(momentum) < 5:
+    # Only positive momentum stocks
+    momentum = momentum[momentum > 0]
+
+    if len(momentum) < TOP_N:
         continue
 
-    # Select strongest 5 stocks
-    selected = momentum.nlargest(5).index
+    selected = momentum.nlargest(TOP_N).index
 
     next_month = monthly.iloc[i + 1]
 
-    portfolio_return = (
+    stock_returns = (
         next_month[selected] / current[selected] - 1
-    ).dropna().mean()
+    ).dropna()
 
-    returns.append(portfolio_return)
+    if stock_returns.empty:
+        continue
 
-returns = pd.Series(returns)
+    portfolio_return = stock_returns.mean()
 
-equity = (1 + returns).cumprod()
+    # Approximate turnover cost
+    current_stocks = set(selected)
 
-total_return = equity.iloc[-1] - 1
+    if previous_stocks:
+        changed = len(
+            current_stocks.symmetric_difference(previous_stocks)
+        )
 
-years = len(returns) / 12
+        turnover = changed / (2 * TOP_N)
+        portfolio_return -= turnover * TRADING_COST
 
-cagr = equity.iloc[-1] ** (1 / years) - 1
+    portfolio_returns.append({
+        "Date": monthly.index[i + 1],
+        "Return": portfolio_return
+    })
 
-volatility = returns.std() * np.sqrt(12)
+    previous_stocks = current_stocks
 
+result = pd.DataFrame(portfolio_returns)
+
+if result.empty:
+    raise RuntimeError("Backtest produced no results.")
+
+result = result.set_index("Date")
+
+# Equity curve
+equity = (1 + result["Return"]).cumprod()
+
+# CAGR
+years_tested = (
+    result.index[-1] - result.index[0]
+).days / 365.25
+
+cagr = equity.iloc[-1] ** (1 / years_tested) - 1
+
+# Volatility
+volatility = result["Return"].std() * np.sqrt(12)
+
+# Sharpe
 sharpe = (
-    returns.mean() / returns.std()
+    result["Return"].mean() /
+    result["Return"].std()
 ) * np.sqrt(12)
 
+# Drawdown
 drawdown = equity / equity.cummax() - 1
 
 max_drawdown = drawdown.min()
 
-win_rate = (returns > 0).mean()
+# Win rate
+win_rate = (result["Return"] > 0).mean()
+
+# Total return
+total_return = equity.iloc[-1] - 1
 
 print()
-print("BACKTEST RESULT")
-print("================")
+print("================================")
+print("NIFTY 500 TOP-15 BACKTEST RESULT")
+print("================================")
+
+print(f"Period: {result.index[0].date()} to {result.index[-1].date()}")
 print(f"Total return: {total_return:.2%}")
 print(f"CAGR: {cagr:.2%}")
 print(f"Annual volatility: {volatility:.2%}")
 print(f"Sharpe ratio: {sharpe:.2f}")
 print(f"Maximum drawdown: {max_drawdown:.2%}")
 print(f"Winning months: {win_rate:.2%}")
-print(f"Months tested: {len(returns)}")
+print(f"Months tested: {len(result)}")
+
+result["Equity"] = equity
+result["Drawdown"] = drawdown
+
+result.to_csv("nifty500_top15_backtest.csv")
 
 print()
+print("Saved: nifty500_top15_backtest.csv")
 print("BACKTEST COMPLETE")
