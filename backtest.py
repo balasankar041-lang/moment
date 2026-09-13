@@ -244,35 +244,59 @@ if not equity:
     raise RuntimeError("No backtest results were generated.")
 
 equity = pd.Series(dict(equity)).sort_index()
-returns = equity.pct_change().dropna()
+monthly_returns = equity.pct_change().dropna()
 
-start_value, end_value = equity.iloc[0], equity.iloc[-1]
-years = max((equity.index[-1] - equity.index[0]).days / 365.25, 1/12)
+# Fixed split chosen before looking at results: training through 2023, unseen test from 2024.
+TRAIN_END = pd.Timestamp("2023-12-31")
+TEST_START = pd.Timestamp("2024-01-01")
 
-total_return = end_value / start_value - 1
-cagr = (end_value / start_value) ** (1/years) - 1
-annual_vol = returns.std() * np.sqrt(12)
-sharpe = (returns.mean() * 12 / annual_vol) if annual_vol > 0 else np.nan
-drawdown = equity / equity.cummax() - 1
-max_drawdown = drawdown.min()
-winning_months = (returns > 0).mean()
+train = monthly_returns.loc[monthly_returns.index <= TRAIN_END]
+test = monthly_returns.loc[monthly_returns.index >= TEST_START]
+
+def metrics(r):
+    if r.empty:
+        return None
+    curve = (1.0 + r).cumprod()
+    total = curve.iloc[-1] - 1.0
+    years = max(len(r) / 12.0, 1/12)
+    cagr = curve.iloc[-1] ** (1.0 / years) - 1.0
+    vol = r.std() * np.sqrt(12)
+    sharpe = (r.mean() * 12 / vol) if vol > 0 else np.nan
+    dd = curve / curve.cummax() - 1.0
+    return {
+        "start": r.index[0], "end": r.index[-1], "total": total,
+        "cagr": cagr, "vol": vol, "sharpe": sharpe, "dd": dd.min(),
+        "win": (r > 0).mean(), "months": len(r)
+    }
+
+train_m = metrics(train)
+test_m = metrics(test)
+all_m = metrics(monthly_returns)
 
 print("\n")
 print("NIFTY 500 HISTORICAL-MEMBERSHIP")
-print("RISK-ADJUSTED TOP-15 BACKTEST")
-print("======================================")
-print("Backtest period:", equity.index[0].date(), "to", equity.index[-1].date())
+print("RISK-ADJUSTED TOP-15 OUT-OF-SAMPLE TEST")
+print("==========================================")
 print("Top stocks:", TOP_N)
 print("Momentum: 20% 3M + 30% 6M + 50% 12M")
 print("Risk adjustment: Momentum / annualized volatility")
 print(f"Trading cost: {TRADING_COST*100:.2f}%")
 print("Rebalances:", rebalance_count)
 print("Skipped months:", skipped)
-print(f"Total return: {total_return*100:.2f}%")
-print(f"CAGR: {cagr*100:.2f}%")
-print(f"Annual volatility: {annual_vol*100:.2f}%")
-print(f"Sharpe ratio: {sharpe:.2f}")
-print(f"Maximum drawdown: {max_drawdown*100:.2f}%")
-print(f"Winning months: {winning_months*100:.2f}%")
-print(f"Months tested: {len(returns)}")
+
+for label, m in [("TRAINING (2020-2023)", train_m), ("UNSEEN TEST (2024-2026)", test_m), ("FULL PERIOD", all_m)]:
+    print("\n" + label)
+    print("-" * len(label))
+    if m is None:
+        print("No data")
+        continue
+    print("Period:", m["start"].date(), "to", m["end"].date())
+    print(f"Total return: {m['total']*100:.2f}%")
+    print(f"CAGR: {m['cagr']*100:.2f}%")
+    print(f"Annual volatility: {m['vol']*100:.2f}%")
+    print(f"Sharpe ratio: {m['sharpe']:.2f}")
+    print(f"Maximum drawdown: {m['dd']*100:.2f}%")
+    print(f"Winning months: {m['win']*100:.2f}%")
+    print(f"Months tested: {m['months']}")
+
 print("\nBACKTEST COMPLETE")
