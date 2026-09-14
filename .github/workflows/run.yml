@@ -18,3 +18,4 @@ jobs:
 
       - run: python backtest.py
       - run: python backtest_id.py
+      - run: python live_screener.py
