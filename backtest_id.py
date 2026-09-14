@@ -15,7 +15,7 @@ TRAIN_END = pd.Timestamp("2023-12-31")
 
 
 # ============================================================
-# LOAD HISTORICAL MEMBERSHIP
+# HISTORICAL MEMBERSHIP
 # ============================================================
 
 membership = pd.read_csv(MEMBERSHIP_FILE)
@@ -36,7 +36,6 @@ membership = (
     .dropna(subset=["effective_date", "symbol"])
     .sort_values(["effective_date", "symbol"])
 )
-
 
 print("\nHISTORICAL MEMBERSHIP")
 print("=====================")
@@ -109,7 +108,6 @@ today = pd.Timestamp.today().normalize()
 
 download_end = today + pd.Timedelta(days=1)
 
-
 print("\nDownloading price data...")
 print(
     "Price period:",
@@ -127,9 +125,15 @@ def download_prices(symbols, batch_size=25):
 
     frames = []
 
-    for i in range(0, len(symbols), batch_size):
+    for i in range(
+        0,
+        len(symbols),
+        batch_size
+    ):
 
-        batch = symbols[i:i + batch_size]
+        batch = symbols[
+            i:i + batch_size
+        ]
 
         print(
             f"Downloading {i+1}-"
@@ -174,13 +178,11 @@ def download_prices(symbols, batch_size=25):
                     continue
 
                 close = data[["Close"]]
-
                 close.columns = [batch[0]]
 
             frames.append(close)
 
         except Exception:
-
             continue
 
     if not frames:
@@ -268,11 +270,7 @@ print(
 
 
 # ============================================================
-# SIGNAL
-#
-# 12-2 momentum
-# Information Discretion
-# 50 DMA / 200 DMA trend filter
+# 12-2 MOMENTUM + INFORMATION DISCRETION
 # ============================================================
 
 def signal(symbol, date):
@@ -281,10 +279,6 @@ def signal(symbol, date):
         return None
 
     s = prices[symbol].dropna()
-
-    # --------------------------------------------------------
-    # 12-2 momentum
-    # --------------------------------------------------------
 
     start_cut = (
         date
@@ -296,9 +290,13 @@ def signal(symbol, date):
         - pd.DateOffset(months=2)
     )
 
-    a = s.loc[s.index <= start_cut]
+    a = s.loc[
+        s.index <= start_cut
+    ]
 
-    b = s.loc[s.index <= end_cut]
+    b = s.loc[
+        s.index <= end_cut
+    ]
 
     if a.empty or b.empty:
         return None
@@ -310,10 +308,6 @@ def signal(symbol, date):
         return None
 
     ret = p1 / p0 - 1
-
-    # --------------------------------------------------------
-    # Information Discretion
-    # --------------------------------------------------------
 
     path = s.loc[
         (s.index >= a.index[-1]) &
@@ -339,43 +333,7 @@ def signal(symbol, date):
         * (neg - pos)
     )
 
-    # --------------------------------------------------------
-    # Trend confirmation
-    # --------------------------------------------------------
-
-    trend_path = s.loc[
-        s.index <= date
-    ]
-
-    if len(trend_path) < 200:
-        return None
-
-    ma50 = (
-        trend_path
-        .rolling(50)
-        .mean()
-        .iloc[-1]
-    )
-
-    ma200 = (
-        trend_path
-        .rolling(200)
-        .mean()
-        .iloc[-1]
-    )
-
-    current_price = trend_path.iloc[-1]
-
-    trend_ok = (
-        current_price > ma200
-        and ma50 > ma200
-    )
-
-    return (
-        ret,
-        id_score,
-        trend_ok
-    )
+    return ret, id_score
 
 
 # ============================================================
@@ -415,7 +373,9 @@ skipped = 0
 audit = []
 
 
-for i, date in enumerate(dates[:-1]):
+for i, date in enumerate(
+    dates[:-1]
+):
 
     next_date = dates[i + 1]
 
@@ -432,20 +392,17 @@ for i, date in enumerate(dates[:-1]):
         z = signal(s, date)
 
         if z is not None:
-
             signals[s] = z
 
 
     if len(signals) < TOP_100:
 
         skipped += 1
-
         continue
 
 
     # --------------------------------------------------------
-    # FIRST SORT
-    # Top 100 momentum
+    # FIRST SORT: Top 100 momentum
     # --------------------------------------------------------
 
     top100 = sorted(
@@ -456,31 +413,20 @@ for i, date in enumerate(dates[:-1]):
 
 
     # --------------------------------------------------------
-    # SECOND SORT
-    # Lowest ID
+    # SECOND SORT: Lowest ID
     # --------------------------------------------------------
 
     selected = [
         s
-        for s, z
-        in sorted(
+        for s, z in sorted(
             top100,
             key=lambda x: x[1][1]
-        )
-        if z[2]
-    ][:TOP_50]
-
-
-    # Require full Top 50
-    if len(selected) < TOP_50:
-
-        skipped += 1
-
-        continue
+        )[:TOP_50]
+    ]
 
 
     # --------------------------------------------------------
-    # Equal weighting
+    # Equal weight
     # --------------------------------------------------------
 
     w = 1.0 / len(selected)
@@ -546,14 +492,12 @@ for i, date in enumerate(dates[:-1]):
                 )
 
         except Exception:
-
             pass
 
 
     equity *= (
         1 + period_ret
     )
-
 
     rows.append(
         (
@@ -579,10 +523,7 @@ for i, date in enumerate(dates[:-1]):
                 signals[s][0],
 
             "ID":
-                signals[s][1],
-
-            "trend_ok":
-                signals[s][2]
+                signals[s][1]
 
         })
 
@@ -621,13 +562,11 @@ def metrics(
     x = x.copy()
 
     if start is not None:
-
         x = x[
             x.index >= start
         ]
 
     if end is not None:
-
         x = x[
             x.index <= end
         ]
@@ -635,7 +574,6 @@ def metrics(
     r = x.pct_change().dropna()
 
     if len(x) < 2:
-
         return None
 
     total = (
@@ -760,11 +698,11 @@ print(
 )
 
 print(
-    "12-2 MOMENTUM + ID + TREND"
+    "12-2 MOMENTUM + INFORMATION DISCRETION"
 )
 
 print(
-    "============================"
+    "=========================================="
 )
 
 print(
@@ -773,10 +711,6 @@ print(
 
 print(
     "Second sort: Lowest ID"
-)
-
-print(
-    "Trend: Price > 200 DMA AND 50 DMA > 200 DMA"
 )
 
 print(
@@ -835,7 +769,6 @@ pd.DataFrame(
     "id_strategy_selections.csv",
     index=False
 )
-
 
 print(
     "\nSelection audit saved:"
