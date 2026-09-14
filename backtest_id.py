@@ -68,7 +68,10 @@ prices = download_prices(symbols).dropna(axis=1, how="all")
 if prices.empty: raise SystemExit("No price data downloaded.")
 
 last_trading_day = prices.index.max()
-completed_month = last_trading_day.to_period("M").to_timestamp("M")
+if last_trading_day.to_period("M") == today.to_period("M"):
+    completed_month = (today.to_period("M") - 1).end_time.normalize()
+else:
+    completed_month = last_trading_day.to_period("M").end_time.normalize()
 monthly = prices.resample("ME").last()
 monthly = monthly[monthly.index <= completed_month]
 
