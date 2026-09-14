@@ -20,6 +20,7 @@ jobs:
       - run: python backtest.py
       - run: python backtest_id.py
       - run: python live_screener.py
+      - run: python walk_forward.py
       - name: Upload live signals
         uses: actions/upload-artifact@v4
         with:
