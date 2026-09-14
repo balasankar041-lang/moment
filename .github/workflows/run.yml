@@ -2,7 +2,8 @@ name: Run Quant Screener
 
 on:
   workflow_dispatch:
-
+  schedule:
+    - cron: "0 * * * *"
 jobs:
   run:
     runs-on: ubuntu-latest
