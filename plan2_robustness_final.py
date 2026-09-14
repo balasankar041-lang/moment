@@ -1,427 +1,608 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import warnings
+warnings.filterwarnings("ignore")
 
 # ============================================================
-# PLAN 2 ROBUSTNESS TEST — CORRECTED
+# PLAN 2 ROBUSTNESS TEST — EXACT BASE IMPLEMENTATION
 #
-# Strategy:
-# 12-2 momentum -> Top N -> lowest ID -> Top M -> portfolio
-# Monthly rebalance.
+# Base implementation is aligned to the recovered original
+# backtest_id.py:
 #
-# IMPORTANT:
-# The base case uses the SAME next-month entry timing as the
-# restored Plan 2 backtest:
-#   Entry = first trading day AFTER month-end
-#   Exit  = last trading day ON/BY next month-end
+#   Top 100 by 12-2 momentum
+#   -> lowest ID Top 50
+#   -> 50-stock equal-weight portfolio
+#   -> month-end close to next month-end close
+#   -> original weight-based turnover cost
 #
-# The robustness grid is interpreted ONLY if the base case
-# reproduces the recorded Plan 2 benchmark closely enough.
+# The base case is validated FIRST.
+# The robustness grid is interpreted ONLY after PASS.
 #
 # Research only. No trading.
 # ============================================================
 
 MEMBERSHIP_FILE = "nifty500_membership_timeline.csv"
-START = "2019-01-01"
-END = "2026-09-30"
 
+TOP_MOMENTUM_POOLS = [75, 100, 150]
+TOP_ID_POOLS = [30, 50, 75]
+PORTFOLIO_SIZES = [30, 40, 50, 60, 75]
 COSTS = [0.0025, 0.0050, 0.0075, 0.0100]
-MOMENTUM_POOLS = [75, 100, 150]
-ID_POOLS = [30, 50, 75]
-PORTFOLIO_SIZES = [10, 15, 20]
 
-BASE_MOMENTUM = 100
-BASE_ID = 50
-BASE_PORTFOLIO = 15
+BASE_TOP_MOMENTUM = 100
+BASE_TOP_ID = 50
+BASE_PORTFOLIO = 50
 BASE_COST = 0.005
 
-# Recorded Plan 2 benchmark
 EXPECTED_CAGR = 0.3342
 EXPECTED_SHARPE = 1.52
 EXPECTED_DD = -0.2765
 EXPECTED_WIN = 0.7273
+
+TRAIN_END = pd.Timestamp("2023-12-31")
 
 # ------------------------------------------------------------
 # Membership
 # ------------------------------------------------------------
 
 membership = pd.read_csv(MEMBERSHIP_FILE)
+
 membership["effective_date"] = pd.to_datetime(
     membership["effective_date"]
 )
+
 membership["symbol"] = (
     membership["symbol"]
     .astype(str)
     .str.strip()
     .str.upper()
 )
-membership = membership.drop_duplicates(
-    ["effective_date", "symbol"]
+
+membership = (
+    membership
+    .dropna(subset=["effective_date", "symbol"])
+    .sort_values(["effective_date", "symbol"])
 )
 
-membership_by_date = {
-    d: set(g["symbol"])
-    for d, g in membership.groupby("effective_date")
-}
-membership_dates = sorted(membership_by_date)
+print("\nHISTORICAL MEMBERSHIP")
+print("=====================")
+print("Records:", len(membership))
+print(
+    "Snapshots:",
+    membership["effective_date"].nunique()
+)
+print(
+    "Date range:",
+    membership["effective_date"].min().date(),
+    "to",
+    membership["effective_date"].max().date()
+)
 
 
-def members_at(date):
-    valid = [d for d in membership_dates if d <= date]
-    return membership_by_date[valid[-1]] if valid else set()
+def yahoo_symbol(s):
+    s = str(s).strip().upper()
+    return (
+        s + ".NS"
+        if s.isalpha() and len(s) <= 20
+        else None
+    )
+
+
+def members_at_date(date):
+    x = membership[
+        membership["effective_date"] <= date
+    ]
+
+    if x.empty:
+        return []
+
+    latest = x["effective_date"].max()
+
+    return sorted(
+        set(
+            yahoo_symbol(s)
+            for s in x.loc[
+                x["effective_date"] == latest,
+                "symbol"
+            ]
+            if yahoo_symbol(s)
+        )
+    )
+
+
+symbols = sorted(
+    set(
+        yahoo_symbol(s)
+        for s in membership["symbol"]
+        if yahoo_symbol(s)
+    )
+)
+
+download_start = (
+    membership["effective_date"].min()
+    - pd.DateOffset(years=2)
+)
+
+today = pd.Timestamp.today().normalize()
+download_end = today + pd.Timedelta(days=1)
+
+print("\nDownloading price data...")
+print(
+    "Price period:",
+    download_start.date(),
+    "to",
+    today.date()
+)
+print(
+    "Historical symbols:",
+    len(symbols)
+)
 
 
 # ------------------------------------------------------------
-# Download close prices
+# Download
 # ------------------------------------------------------------
 
-symbols = sorted(membership["symbol"].unique())
-tickers = [s + ".NS" for s in symbols]
+def download_prices(symbols, batch_size=25):
 
-print("Downloading price data...")
+    frames = []
 
-frames = []
+    for i in range(
+        0,
+        len(symbols),
+        batch_size
+    ):
 
-for i in range(0, len(tickers), 25):
-    batch = tickers[i:i + 25]
+        batch = symbols[
+            i:i + batch_size
+        ]
 
-    try:
-        x = yf.download(
-            batch,
-            start=START,
-            end=END,
-            auto_adjust=True,
-            progress=False,
-            threads=False,
-            group_by="column"
+        print(
+            f"Downloading "
+            f"{i + 1}-"
+            f"{min(i + batch_size, len(symbols))}"
         )
 
-        if x.empty:
+        try:
+
+            data = yf.download(
+                batch,
+                start=download_start.strftime(
+                    "%Y-%m-%d"
+                ),
+                end=download_end.strftime(
+                    "%Y-%m-%d"
+                ),
+                auto_adjust=True,
+                progress=False,
+                threads=True
+            )
+
+            if data.empty:
+                continue
+
+            if isinstance(
+                data.columns,
+                pd.MultiIndex
+            ):
+
+                if (
+                    "Close"
+                    not in data.columns
+                    .get_level_values(0)
+                ):
+                    continue
+
+                close = data["Close"]
+
+            else:
+
+                if "Close" not in data.columns:
+                    continue
+
+                close = data[["Close"]]
+                close.columns = [batch[0]]
+
+            frames.append(close)
+
+        except Exception:
             continue
 
-        if isinstance(x.columns, pd.MultiIndex):
-            x = x["Close"]
-        else:
-            x = x[["Close"]]
-            x.columns = batch
+    if not frames:
+        return pd.DataFrame()
 
-        frames.append(x)
-        print(
-            f"Downloaded "
-            f"{min(i + 25, len(tickers))}/{len(tickers)}"
+    return (
+        pd.concat(
+            frames,
+            axis=1,
+            sort=True
         )
-
-    except Exception as e:
-        print("Batch failed:", e)
-
-if not frames:
-    raise RuntimeError("No price data downloaded.")
-
-close = pd.concat(frames, axis=1)
-close = close.loc[:, ~close.columns.duplicated()]
-close = close.dropna(axis=1, how="all")
-close = close.sort_index()
-
-print(f"Stocks with usable data: {close.shape[1]}")
-print(f"Trading days: {len(close)}")
+        .loc[
+            :,
+            lambda x:
+                ~x.columns.duplicated()
+        ]
+        .sort_index()
+    )
 
 
-# ------------------------------------------------------------
-# Completed month ends
-# ------------------------------------------------------------
-
-month_ends = close.resample("ME").last().index
-
-last_completed = (
-    pd.Timestamp.today().to_period("M").start_time
-    - pd.Timedelta(days=1)
+prices = (
+    download_prices(symbols)
+    .dropna(axis=1, how="all")
 )
 
-month_ends = month_ends[
-    (month_ends <= last_completed)
-    & (month_ends >= pd.Timestamp("2020-02-29"))
+if prices.empty:
+    raise SystemExit(
+        "No price data downloaded."
+    )
+
+
+# ------------------------------------------------------------
+# Completed month
+# ------------------------------------------------------------
+
+last_trading_day = prices.index.max()
+
+if (
+    last_trading_day.to_period("M")
+    == today.to_period("M")
+):
+
+    completed_month = (
+        today.to_period("M") - 1
+    ).end_time.normalize()
+
+else:
+
+    completed_month = (
+        last_trading_day
+        .to_period("M")
+        .end_time
+        .normalize()
+    )
+
+monthly = prices.resample("ME").last()
+
+monthly = monthly[
+    monthly.index <= completed_month
+]
+
+print("\nPRICE DATA")
+print("==========")
+print(
+    "Stocks with actual data:",
+    prices.shape[1]
+)
+print(
+    "Trading days:",
+    len(prices)
+)
+print(
+    "Last available trading day:",
+    last_trading_day.date()
+)
+print(
+    "Last completed month:",
+    completed_month.date()
+)
+
+
+# ------------------------------------------------------------
+# Signal
+# EXACT original implementation
+# ------------------------------------------------------------
+
+def signal(symbol, date):
+
+    if symbol not in prices.columns:
+        return None
+
+    s = prices[symbol].dropna()
+
+    start_cut = (
+        date
+        - pd.DateOffset(months=12)
+    )
+
+    end_cut = (
+        date
+        - pd.DateOffset(months=2)
+    )
+
+    a = s.loc[
+        s.index <= start_cut
+    ]
+
+    b = s.loc[
+        s.index <= end_cut
+    ]
+
+    if a.empty or b.empty:
+        return None
+
+    p0 = a.iloc[-1]
+    p1 = b.iloc[-1]
+
+    if p0 <= 0 or p1 <= 0:
+        return None
+
+    ret = p1 / p0 - 1
+
+    path = s.loc[
+        (s.index >= a.index[-1])
+        &
+        (s.index <= b.index[-1])
+    ]
+
+    if len(path) < 100:
+        return None
+
+    dr = (
+        path
+        .pct_change()
+        .dropna()
+    )
+
+    dr = dr[dr != 0]
+
+    if dr.empty:
+        return None
+
+    pos = (dr > 0).mean()
+    neg = (dr < 0).mean()
+
+    id_score = (
+        (1 if ret > 0 else -1)
+        * (neg - pos)
+    )
+
+    return ret, id_score
+
+
+# ------------------------------------------------------------
+# Dates
+# ------------------------------------------------------------
+
+dates = [
+    d for d in monthly.index
+    if d <= completed_month
+]
+
+dates = [
+    d for d in dates
+    if d >= (
+        membership["effective_date"].min()
+        + pd.DateOffset(months=13)
+    )
 ]
 
 
 # ------------------------------------------------------------
-# Prepare monthly Plan 2 ranking data
-# ------------------------------------------------------------
-
-print("Preparing monthly Plan 2 rankings...")
-
-monthly_rankings = {}
-
-for month_end in month_ends:
-
-    members = members_at(month_end)
-
-    if not members:
-        continue
-
-    end_2m = month_end - pd.DateOffset(months=2)
-    end_12m = month_end - pd.DateOffset(months=12)
-
-    records = []
-
-    for symbol in members:
-
-        ticker = symbol + ".NS"
-
-        if ticker not in close.columns:
-            continue
-
-        s = close[ticker].dropna()
-
-        if len(s) < 270:
-            continue
-
-        d12s = s.index[s.index <= end_12m]
-        d2s = s.index[s.index <= end_2m]
-
-        if not len(d12s) or not len(d2s):
-            continue
-
-        d12 = d12s[-1]
-        d2 = d2s[-1]
-
-        p12 = s.loc[d12]
-        p2 = s.loc[d2]
-
-        if p12 <= 0:
-            continue
-
-        momentum = p2 / p12 - 1
-
-        # Information Discreteness:
-        # sign(momentum) * (% negative days - % positive days)
-        path = s.loc[d12:d2].pct_change().dropna()
-
-        positive = (path > 0).sum()
-        negative = (path < 0).sum()
-        directional = positive + negative
-
-        if directional == 0:
-            continue
-
-        id_value = np.sign(momentum) * (
-            negative / directional
-            - positive / directional
-        )
-
-        records.append(
-            (symbol, momentum, id_value)
-        )
-
-    if records:
-        monthly_rankings[month_end] = pd.DataFrame(
-            records,
-            columns=["symbol", "momentum", "id"]
-        )
-
-print(
-    f"Ranking months prepared: "
-    f"{len(monthly_rankings)}"
-)
-
-
-# ------------------------------------------------------------
-# Run one configuration
+# Run exact strategy
 # ------------------------------------------------------------
 
 def run_strategy(
-    momentum_pool,
-    id_pool,
+    top_100,
+    top_50,
     portfolio_size,
-    cost
+    trading_cost
 ):
 
-    monthly_returns = []
-    return_dates = []
+    equity = 1.0
 
-    previous_portfolio = set()
+    rows = []
+
+    previous = {}
+
+    rebalance_count = 0
     skipped = 0
 
-    for month_end in month_ends:
+    for i, date in enumerate(
+        dates[:-1]
+    ):
 
-        if month_end not in monthly_rankings:
-            skipped += 1
-            continue
+        next_date = dates[i + 1]
 
-        df = monthly_rankings[month_end]
-
-        # 1. Momentum ranking
-        top_momentum = (
-            df.sort_values(
-                ["momentum", "symbol"],
-                ascending=[False, True]
-            )
-            .head(momentum_pool)
-        )
-
-        # Positive momentum only
-        top_momentum = top_momentum[
-            top_momentum["momentum"] > 0
+        candidates = [
+            s
+            for s in members_at_date(date)
+            if s in prices.columns
         ]
 
-        if len(top_momentum) < portfolio_size:
+        signals = {}
+
+        for s in candidates:
+
+            z = signal(s, date)
+
+            if z is not None:
+                signals[s] = z
+
+        if len(signals) < top_100:
             skipped += 1
             continue
 
-        # 2. Lowest Information Discreteness
-        top_id = (
-            top_momentum
-            .sort_values(
-                ["id", "symbol"],
-                ascending=[True, True]
-            )
-            .head(id_pool)
-        )
+        # EXACT original:
+        # sort only by momentum
+        top100 = sorted(
+            signals.items(),
+            key=lambda x: x[1][0],
+            reverse=True
+        )[:top_100]
 
-        if len(top_id) < portfolio_size:
+        # EXACT original:
+        # lowest ID from top momentum group
+        selected = [
+            s
+            for s, z in sorted(
+                top100,
+                key=lambda x: x[1][1]
+            )[:top_50]
+        ]
+
+        if len(selected) < portfolio_size:
             skipped += 1
             continue
 
-        # 3. Final portfolio
-        selected = top_id.head(portfolio_size)
-        portfolio = set(selected["symbol"])
+        # For the base strategy portfolio size is 50.
+        # For robustness tests, select the first N from
+        # the same lowest-ID ranking.
+        selected = selected[:portfolio_size]
 
-        next_month = (
-            month_end
-            + pd.offsets.MonthEnd(1)
+        w = 1.0 / len(selected)
+
+        new = {
+            s: w
+            for s in selected
+        }
+
+        # EXACT original turnover calculation
+        all_s = set(previous) | set(new)
+
+        turnover = sum(
+            abs(
+                new.get(s, 0)
+                -
+                previous.get(s, 0)
+            )
+            for s in all_s
         )
 
-        if next_month not in month_ends:
-            continue
-
-        stock_returns = []
-
-        for symbol in portfolio:
-
-            ticker = symbol + ".NS"
-
-            if ticker not in close.columns:
-                continue
-
-            s = close[ticker].dropna()
-
-            # SAME TIMING AS RESTORED PLAN 2:
-            # Entry = first trading day AFTER month-end
-            # Exit = last trading day ON/BY next month-end
-            start_dates = s.index[
-                s.index > month_end
-            ]
-            end_dates = s.index[
-                s.index <= next_month
-            ]
-
-            if not len(start_dates) or not len(end_dates):
-                continue
-
-            start_date = start_dates[0]
-            end_date = end_dates[-1]
-
-            if end_date <= start_date:
-                continue
-
-            ret = (
-                s.loc[end_date]
-                / s.loc[start_date]
-                - 1
-            )
-
-            if pd.notna(ret):
-                stock_returns.append(ret)
-
-        if len(stock_returns) < max(
-            5,
-            portfolio_size // 2
-        ):
-            skipped += 1
-            continue
-
-        gross_return = np.mean(stock_returns)
-
-        # SAME turnover convention as Plan 2
-        changed = len(
-            portfolio.symmetric_difference(
-                previous_portfolio
-            )
+        equity *= (
+            1
+            -
+            turnover * trading_cost
         )
 
-        if previous_portfolio:
-            turnover_fraction = (
-                changed
-                /
-                (
-                    len(portfolio)
-                    + len(previous_portfolio)
-                )
-            )
-        else:
-            turnover_fraction = 1.0
+        # EXACT original return calculation:
+        # month-end close -> next month-end close
+        period_ret = 0.0
 
-        net_return = (
-            gross_return
-            - cost * turnover_fraction
+        for s, weight in new.items():
+
+            try:
+
+                p0 = monthly.loc[
+                    date,
+                    s
+                ]
+
+                p1 = monthly.loc[
+                    next_date,
+                    s
+                ]
+
+                if (
+                    pd.notna(p0)
+                    and pd.notna(p1)
+                    and p0 > 0
+                ):
+
+                    period_ret += (
+                        weight
+                        *
+                        (p1 / p0 - 1)
+                    )
+
+            except Exception:
+                pass
+
+        equity *= (
+            1 + period_ret
         )
 
-        monthly_returns.append(net_return)
-        return_dates.append(next_month)
+        rows.append(
+            (next_date, equity)
+        )
 
-        previous_portfolio = portfolio
+        previous = new
+        rebalance_count += 1
 
-    if not monthly_returns:
+    if not rows:
         return None
 
-    r = pd.Series(
-        monthly_returns,
-        index=pd.DatetimeIndex(return_dates)
+    eq = pd.Series(
+        dict(rows)
     ).sort_index()
 
-    equity = (1 + r).cumprod()
-
-    total_return = equity.iloc[-1] - 1
-
-    years = len(r) / 12
-
-    cagr = (
-        equity.iloc[-1] ** (1 / years) - 1
-        if years > 0 else np.nan
+    # Same metric methodology as original
+    r = (
+        eq
+        .pct_change()
+        .dropna()
     )
 
-    volatility = r.std(ddof=1) * np.sqrt(12)
+    if len(eq) < 2:
+        return None
+
+    total = (
+        eq.iloc[-1]
+        /
+        eq.iloc[0]
+        - 1
+    )
+
+    years = max(
+        (
+            eq.index[-1]
+            -
+            eq.index[0]
+        ).days
+        / 365.25,
+        1 / 12
+    )
+
+    cagr = (
+        eq.iloc[-1]
+        /
+        eq.iloc[0]
+    ) ** (1 / years) - 1
+
+    vol = (
+        r.std()
+        *
+        np.sqrt(12)
+    )
 
     sharpe = (
         r.mean()
-        / r.std(ddof=1)
-        * np.sqrt(12)
-        if r.std(ddof=1) > 0
+        * 12
+        /
+        vol
+        if vol > 0
         else np.nan
     )
 
-    max_drawdown = (
-        equity / equity.cummax() - 1
+    dd = (
+        eq
+        /
+        eq.cummax()
+        - 1
     ).min()
 
-    winning_months = (r > 0).mean()
+    win = (
+        r > 0
+    ).mean()
 
     return {
-        "momentum_pool": momentum_pool,
-        "id_pool": id_pool,
+        "top_momentum": top_100,
+        "top_id": top_50,
         "portfolio_size": portfolio_size,
-        "cost": cost,
+        "cost": trading_cost,
+        "total_return": total,
         "cagr": cagr,
-        "volatility": volatility,
+        "volatility": vol,
         "sharpe": sharpe,
-        "max_drawdown": max_drawdown,
-        "winning_months": winning_months,
+        "max_drawdown": dd,
+        "winning_months": win,
         "months": len(r),
+        "rebalances": rebalance_count,
         "skipped": skipped
     }
 
 
 # ------------------------------------------------------------
-# BASE CASE VALIDATION
+# BASE VALIDATION
 # ------------------------------------------------------------
 
 print()
@@ -430,45 +611,81 @@ print("BASE CASE VALIDATION")
 print("=" * 80)
 
 base = run_strategy(
-    BASE_MOMENTUM,
-    BASE_ID,
+    BASE_TOP_MOMENTUM,
+    BASE_TOP_ID,
     BASE_PORTFOLIO,
     BASE_COST
 )
 
 if base is None:
-    raise RuntimeError(
-        "BASE CASE FAILED: no returns produced."
+    raise SystemExit(
+        "BASE CASE FAILED: no results."
     )
 
-print(f"CAGR: {base['cagr']:.2%}")
-print(f"Sharpe: {base['sharpe']:.2f}")
-print(f"Max DD: {base['max_drawdown']:.2%}")
+print(
+    f"CAGR: {base['cagr']:.2%}"
+)
+print(
+    f"Sharpe: {base['sharpe']:.2f}"
+)
+print(
+    f"Max DD: {base['max_drawdown']:.2%}"
+)
 print(
     f"Winning months: "
     f"{base['winning_months']:.2%}"
 )
-print(f"Months: {base['months']}")
-print(f"Skipped: {base['skipped']}")
+print(
+    f"Months: {base['months']}"
+)
+print(
+    f"Rebalances: {base['rebalances']}"
+)
+print(
+    f"Skipped: {base['skipped']}"
+)
 
+# Tight validation:
+# CAGR within 2 pp, Sharpe within 0.10,
+# DD within 2 pp, win rate within 2 pp.
 base_ok = (
-    abs(base["cagr"] - EXPECTED_CAGR) <= 0.05
-    and abs(base["sharpe"] - EXPECTED_SHARPE) <= 0.20
-    and abs(base["max_drawdown"] - EXPECTED_DD) <= 0.05
-    and abs(
-        base["winning_months"] - EXPECTED_WIN
-    ) <= 0.08
+    abs(
+        base["cagr"]
+        -
+        EXPECTED_CAGR
+    ) <= 0.02
+    and
+    abs(
+        base["sharpe"]
+        -
+        EXPECTED_SHARPE
+    ) <= 0.10
+    and
+    abs(
+        base["max_drawdown"]
+        -
+        EXPECTED_DD
+    ) <= 0.02
+    and
+    abs(
+        base["winning_months"]
+        -
+        EXPECTED_WIN
+    ) <= 0.02
 )
 
 print()
 
 if base_ok:
+
     print("BASE CASE STATUS: PASS")
     print(
-        "The base case is reasonably close "
-        "to the recorded Plan 2 benchmark."
+        "Base case reproduces the "
+        "recorded Plan 2 benchmark closely."
     )
+
 else:
+
     print("BASE CASE STATUS: FAIL")
     print(
         "STOP: robustness grid will NOT "
@@ -476,16 +693,15 @@ else:
     )
     print(
         "The base case does not reproduce "
-        "Plan 2 closely enough."
+        "the recorded Plan 2 benchmark."
     )
 
 
 # ------------------------------------------------------------
-# FULL ROBUSTNESS GRID
-# ONLY AFTER BASE PASS
+# ROBUSTNESS GRID
 # ------------------------------------------------------------
 
-results = [base] if base_ok else []
+results = []
 
 if base_ok:
 
@@ -495,19 +711,14 @@ if base_ok:
     print("=" * 80)
 
     for cost in COSTS:
-        for momentum_pool in MOMENTUM_POOLS:
-            for id_pool in ID_POOLS:
+
+        for momentum_pool in TOP_MOMENTUM_POOLS:
+
+            for id_pool in TOP_ID_POOLS:
+
                 for portfolio_size in PORTFOLIO_SIZES:
 
                     if portfolio_size > id_pool:
-                        continue
-
-                    if (
-                        momentum_pool == BASE_MOMENTUM
-                        and id_pool == BASE_ID
-                        and portfolio_size == BASE_PORTFOLIO
-                        and cost == BASE_COST
-                    ):
                         continue
 
                     result = run_strategy(
@@ -520,7 +731,9 @@ if base_ok:
                     if result is not None:
                         results.append(result)
 
-    results_df = pd.DataFrame(results)
+    results_df = pd.DataFrame(
+        results
+    )
 
     results_df.to_csv(
         "plan2_robustness_results_validated.csv",
@@ -595,7 +808,9 @@ if base_ok:
 
 else:
 
-    pd.DataFrame([base]).to_csv(
+    pd.DataFrame(
+        [base]
+    ).to_csv(
         "plan2_robustness_base_validation_failed.csv",
         index=False
     )
