@@ -1,22 +1,22 @@
-
 import pandas as pd
 import numpy as np
 import yfinance as yf
 
 # ============================================================
-# PLAN 2 ROBUSTNESS TEST — CLEAN VERSION
-#
-# IMPORTANT:
-# This file is standalone. It does NOT depend on backtest_id.py.
-# It tests the original Plan 2 logic only.
+# PLAN 2 ROBUSTNESS TEST — CORRECTED
 #
 # Strategy:
-# 12-2 momentum -> Top 100 -> lowest ID -> Top 50 -> Top 15
-# monthly rebalance, 0.50% base transaction cost.
+# 12-2 momentum -> Top N -> lowest ID -> Top M -> portfolio
+# Monthly rebalance.
 #
-# First it validates the BASE CASE.
-# Only if the base case is close to our recorded Plan 2 baseline
-# do we interpret the robustness grid.
+# IMPORTANT:
+# The base case uses the SAME next-month entry timing as the
+# restored Plan 2 backtest:
+#   Entry = first trading day AFTER month-end
+#   Exit  = last trading day ON/BY next month-end
+#
+# The robustness grid is interpreted ONLY if the base case
+# reproduces the recorded Plan 2 benchmark closely enough.
 #
 # Research only. No trading.
 # ============================================================
@@ -35,7 +35,7 @@ BASE_ID = 50
 BASE_PORTFOLIO = 15
 BASE_COST = 0.005
 
-# Recorded Plan 2 benchmark.
+# Recorded Plan 2 benchmark
 EXPECTED_CAGR = 0.3342
 EXPECTED_SHARPE = 1.52
 EXPECTED_DD = -0.2765
@@ -46,11 +46,18 @@ EXPECTED_WIN = 0.7273
 # ------------------------------------------------------------
 
 membership = pd.read_csv(MEMBERSHIP_FILE)
-membership["effective_date"] = pd.to_datetime(membership["effective_date"])
-membership["symbol"] = (
-    membership["symbol"].astype(str).str.strip().str.upper()
+membership["effective_date"] = pd.to_datetime(
+    membership["effective_date"]
 )
-membership = membership.drop_duplicates(["effective_date", "symbol"])
+membership["symbol"] = (
+    membership["symbol"]
+    .astype(str)
+    .str.strip()
+    .str.upper()
+)
+membership = membership.drop_duplicates(
+    ["effective_date", "symbol"]
+)
 
 membership_by_date = {
     d: set(g["symbol"])
@@ -58,9 +65,11 @@ membership_by_date = {
 }
 membership_dates = sorted(membership_by_date)
 
+
 def members_at(date):
     valid = [d for d in membership_dates if d <= date]
     return membership_by_date[valid[-1]] if valid else set()
+
 
 # ------------------------------------------------------------
 # Download close prices
@@ -74,7 +83,7 @@ print("Downloading price data...")
 frames = []
 
 for i in range(0, len(tickers), 25):
-    batch = tickers[i:i+25]
+    batch = tickers[i:i + 25]
 
     try:
         x = yf.download(
@@ -97,7 +106,10 @@ for i in range(0, len(tickers), 25):
             x.columns = batch
 
         frames.append(x)
-        print(f"Downloaded {min(i+25, len(tickers))}/{len(tickers)}")
+        print(
+            f"Downloaded "
+            f"{min(i + 25, len(tickers))}/{len(tickers)}"
+        )
 
     except Exception as e:
         print("Batch failed:", e)
@@ -112,6 +124,7 @@ close = close.sort_index()
 
 print(f"Stocks with usable data: {close.shape[1]}")
 print(f"Trading days: {len(close)}")
+
 
 # ------------------------------------------------------------
 # Completed month ends
@@ -128,6 +141,7 @@ month_ends = month_ends[
     (month_ends <= last_completed)
     & (month_ends >= pd.Timestamp("2020-02-29"))
 ]
+
 
 # ------------------------------------------------------------
 # Prepare monthly Plan 2 ranking data
@@ -178,7 +192,8 @@ for month_end in month_ends:
 
         momentum = p2 / p12 - 1
 
-        # ID = sign(momentum) * (% negative days - % positive days)
+        # Information Discreteness:
+        # sign(momentum) * (% negative days - % positive days)
         path = s.loc[d12:d2].pct_change().dropna()
 
         positive = (path > 0).sum()
@@ -188,11 +203,9 @@ for month_end in month_ends:
         if directional == 0:
             continue
 
-        positive_pct = positive / directional
-        negative_pct = negative / directional
-
         id_value = np.sign(momentum) * (
-            negative_pct - positive_pct
+            negative / directional
+            - positive / directional
         )
 
         records.append(
@@ -200,20 +213,27 @@ for month_end in month_ends:
         )
 
     if records:
-        df = pd.DataFrame(
+        monthly_rankings[month_end] = pd.DataFrame(
             records,
             columns=["symbol", "momentum", "id"]
         )
 
-        monthly_rankings[month_end] = df
+print(
+    f"Ranking months prepared: "
+    f"{len(monthly_rankings)}"
+)
 
-print(f"Ranking months prepared: {len(monthly_rankings)}")
 
 # ------------------------------------------------------------
-# Run a configuration
+# Run one configuration
 # ------------------------------------------------------------
 
-def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
+def run_strategy(
+    momentum_pool,
+    id_pool,
+    portfolio_size,
+    cost
+):
 
     monthly_returns = []
     return_dates = []
@@ -229,7 +249,7 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
 
         df = monthly_rankings[month_end]
 
-        # 1. Momentum Top N
+        # 1. Momentum ranking
         top_momentum = (
             df.sort_values(
                 ["momentum", "symbol"],
@@ -238,6 +258,7 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
             .head(momentum_pool)
         )
 
+        # Positive momentum only
         top_momentum = top_momentum[
             top_momentum["momentum"] > 0
         ]
@@ -246,7 +267,7 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
             skipped += 1
             continue
 
-        # 2. Lowest ID
+        # 2. Lowest Information Discreteness
         top_id = (
             top_momentum
             .sort_values(
@@ -260,11 +281,14 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
             skipped += 1
             continue
 
-        # 3. Select portfolio
+        # 3. Final portfolio
         selected = top_id.head(portfolio_size)
         portfolio = set(selected["symbol"])
 
-        next_month = month_end + pd.offsets.MonthEnd(1)
+        next_month = (
+            month_end
+            + pd.offsets.MonthEnd(1)
+        )
 
         if next_month not in month_ends:
             continue
@@ -280,22 +304,30 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
 
             s = close[ticker].dropna()
 
-            # IMPORTANT:
-            # Entry = last available close ON month-end.
-            # Exit  = last available close ON next month-end.
-            start_dates = s.index[s.index <= month_end]
-            end_dates = s.index[s.index <= next_month]
+            # SAME TIMING AS RESTORED PLAN 2:
+            # Entry = first trading day AFTER month-end
+            # Exit = last trading day ON/BY next month-end
+            start_dates = s.index[
+                s.index > month_end
+            ]
+            end_dates = s.index[
+                s.index <= next_month
+            ]
 
             if not len(start_dates) or not len(end_dates):
                 continue
 
-            start_date = start_dates[-1]
+            start_date = start_dates[0]
             end_date = end_dates[-1]
 
             if end_date <= start_date:
                 continue
 
-            ret = s.loc[end_date] / s.loc[start_date] - 1
+            ret = (
+                s.loc[end_date]
+                / s.loc[start_date]
+                - 1
+            )
 
             if pd.notna(ret):
                 stock_returns.append(ret)
@@ -309,14 +341,21 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
 
         gross_return = np.mean(stock_returns)
 
-        # Same turnover convention used by this experiment.
+        # SAME turnover convention as Plan 2
         changed = len(
-            portfolio.symmetric_difference(previous_portfolio)
+            portfolio.symmetric_difference(
+                previous_portfolio
+            )
         )
 
         if previous_portfolio:
-            turnover_fraction = changed / (
-                len(portfolio) + len(previous_portfolio)
+            turnover_fraction = (
+                changed
+                /
+                (
+                    len(portfolio)
+                    + len(previous_portfolio)
+                )
             )
         else:
             turnover_fraction = 1.0
@@ -353,8 +392,11 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
     volatility = r.std(ddof=1) * np.sqrt(12)
 
     sharpe = (
-        r.mean() / r.std(ddof=1) * np.sqrt(12)
-        if r.std(ddof=1) > 0 else np.nan
+        r.mean()
+        / r.std(ddof=1)
+        * np.sqrt(12)
+        if r.std(ddof=1) > 0
+        else np.nan
     )
 
     max_drawdown = (
@@ -377,8 +419,9 @@ def run_strategy(momentum_pool, id_pool, portfolio_size, cost):
         "skipped": skipped
     }
 
+
 # ------------------------------------------------------------
-# BASE CASE FIRST
+# BASE CASE VALIDATION
 # ------------------------------------------------------------
 
 print()
@@ -394,38 +437,52 @@ base = run_strategy(
 )
 
 if base is None:
-    raise RuntimeError("BASE CASE FAILED: no returns produced.")
+    raise RuntimeError(
+        "BASE CASE FAILED: no returns produced."
+    )
 
 print(f"CAGR: {base['cagr']:.2%}")
 print(f"Sharpe: {base['sharpe']:.2f}")
 print(f"Max DD: {base['max_drawdown']:.2%}")
-print(f"Winning months: {base['winning_months']:.2%}")
+print(
+    f"Winning months: "
+    f"{base['winning_months']:.2%}"
+)
 print(f"Months: {base['months']}")
 print(f"Skipped: {base['skipped']}")
-
-# ------------------------------------------------------------
-# Decide whether base is close enough.
-# ------------------------------------------------------------
 
 base_ok = (
     abs(base["cagr"] - EXPECTED_CAGR) <= 0.05
     and abs(base["sharpe"] - EXPECTED_SHARPE) <= 0.20
     and abs(base["max_drawdown"] - EXPECTED_DD) <= 0.05
-    and abs(base["winning_months"] - EXPECTED_WIN) <= 0.08
+    and abs(
+        base["winning_months"] - EXPECTED_WIN
+    ) <= 0.08
 )
 
 print()
 
 if base_ok:
     print("BASE CASE STATUS: PASS")
-    print("The base case is reasonably close to the recorded Plan 2 benchmark.")
+    print(
+        "The base case is reasonably close "
+        "to the recorded Plan 2 benchmark."
+    )
 else:
     print("BASE CASE STATUS: FAIL")
-    print("STOP: robustness grid will NOT be interpreted.")
-    print("The base case does not reproduce Plan 2 closely enough.")
+    print(
+        "STOP: robustness grid will NOT "
+        "be interpreted."
+    )
+    print(
+        "The base case does not reproduce "
+        "Plan 2 closely enough."
+    )
+
 
 # ------------------------------------------------------------
-# Full grid ONLY after base validation.
+# FULL ROBUSTNESS GRID
+# ONLY AFTER BASE PASS
 # ------------------------------------------------------------
 
 results = [base] if base_ok else []
@@ -442,15 +499,15 @@ if base_ok:
             for id_pool in ID_POOLS:
                 for portfolio_size in PORTFOLIO_SIZES:
 
+                    if portfolio_size > id_pool:
+                        continue
+
                     if (
                         momentum_pool == BASE_MOMENTUM
                         and id_pool == BASE_ID
                         and portfolio_size == BASE_PORTFOLIO
                         and cost == BASE_COST
                     ):
-                        continue
-
-                    if portfolio_size > id_pool:
                         continue
 
                     result = run_strategy(
@@ -465,7 +522,6 @@ if base_ok:
 
     results_df = pd.DataFrame(results)
 
-    # Save only validated results.
     results_df.to_csv(
         "plan2_robustness_results_validated.csv",
         index=False
@@ -477,7 +533,8 @@ if base_ok:
     print("=" * 80)
 
     print(
-        results_df.sort_values(
+        results_df
+        .sort_values(
             ["sharpe", "cagr"],
             ascending=False
         )
@@ -490,12 +547,21 @@ if base_ok:
     print("MEDIAN RESULTS")
     print("=" * 80)
 
-    print(f"Median CAGR: {results_df['cagr'].median():.2%}")
-    print(f"Median Sharpe: {results_df['sharpe'].median():.2f}")
+    print(
+        f"Median CAGR: "
+        f"{results_df['cagr'].median():.2%}"
+    )
+
+    print(
+        f"Median Sharpe: "
+        f"{results_df['sharpe'].median():.2f}"
+    )
+
     print(
         f"Median Max DD: "
         f"{results_df['max_drawdown'].median():.2%}"
     )
+
     print(
         f"Median Winning Months: "
         f"{results_df['winning_months'].median():.2%}"
@@ -522,14 +588,20 @@ if base_ok:
     )
 
     print()
-    print("Saved: plan2_robustness_results_validated.csv")
+    print(
+        "Saved: "
+        "plan2_robustness_results_validated.csv"
+    )
 
 else:
-    # Still save the failed base result for diagnosis.
+
     pd.DataFrame([base]).to_csv(
         "plan2_robustness_base_validation_failed.csv",
         index=False
     )
 
     print()
-    print("Saved: plan2_robustness_base_validation_failed.csv")
+    print(
+        "Saved: "
+        "plan2_robustness_base_validation_failed.csv"
+    )
