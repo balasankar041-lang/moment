@@ -30,6 +30,8 @@ jobs:
         run: python volatility_position_sizing_test.py
       - name: Run portfolio concentration test
         run: python portfolio_concentration_test.py
+      - name: Run concentration drawdown test
+        run: python concentration_drawdown_test.py  
       - name: Upload live signals
         uses: actions/upload-artifact@v4
         with:
