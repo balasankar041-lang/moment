@@ -9,7 +9,7 @@ TOP_ID = 50
 # Read historical membership
 membership = pd.read_csv("nifty500_membership_timeline.csv")
 
-membership["date"] = pd.to_datetime(membership["date"])
+membership["date"] = pd.to_datetime(membership["effective_date"])
 membership["symbol"] = membership["symbol"].astype(str).str.strip()
 
 # Use the same historical universe as Plan2
