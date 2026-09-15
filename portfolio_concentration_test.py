@@ -2,22 +2,24 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 
-# Plan2 settings
 TOP_MOMENTUM = 100
 TOP_ID = 50
 
-# Read historical membership
+# -----------------------------
+# Load historical membership
+# -----------------------------
 membership = pd.read_csv("nifty500_membership_timeline.csv")
 
 membership["date"] = pd.to_datetime(membership["effective_date"])
 membership["symbol"] = membership["symbol"].astype(str).str.strip()
 
-# Use the same historical universe as Plan2
 symbols = sorted(membership["symbol"].dropna().unique())
 
 print("Historical symbols:", len(symbols))
 
-# Download daily prices
+# -----------------------------
+# Download prices
+# -----------------------------
 prices = yf.download(
     [s + ".NS" for s in symbols],
     start="2019-01-01",
@@ -39,16 +41,20 @@ prices = prices.sort_index()
 
 monthly_prices = prices.resample("ME").last()
 
-# Calculate monthly portfolio selections
+# -----------------------------
+# Build exact Plan2 portfolios
+# -----------------------------
 portfolio_records = []
 
 for date in monthly_prices.index:
+
     available = membership[membership["date"] <= date]
 
     if available.empty:
         continue
 
     latest_snapshot = available["date"].max()
+
     universe = available[
         available["date"] == latest_snapshot
     ]["symbol"].tolist()
@@ -73,26 +79,38 @@ for date in monthly_prices.index:
     if len(past_dates) == 0:
         continue
 
-    past = monthly_prices.loc[past_dates[-1], universe]
+    past = monthly_prices.loc[
+        past_dates[-1],
+        universe
+    ]
 
     momentum = current / past - 1
-    momentum = momentum.replace([np.inf, -np.inf], np.nan).dropna()
+
+    momentum = momentum.replace(
+        [np.inf, -np.inf],
+        np.nan
+    ).dropna()
 
     if len(momentum) < TOP_MOMENTUM:
         continue
 
     top100 = momentum.nlargest(TOP_MOMENTUM)
 
-    # Plan2 ID:
-    # 12-2 month daily path
+    # -----------------------------
+    # Plan2 ID
+    # -----------------------------
     start_date = date - pd.DateOffset(months=12)
     end_date = date - pd.DateOffset(months=2)
 
-    daily = prices.loc[start_date:end_date, top100.index]
+    daily = prices.loc[
+        start_date:end_date,
+        top100.index
+    ]
 
     ids = {}
 
     for symbol in top100.index:
+
         series = daily[symbol].dropna()
 
         if len(series) < 100:
@@ -133,38 +151,145 @@ if portfolio.empty:
 
 print("Portfolio selection records:", len(portfolio))
 
-# -------------------------------------------------
-# 1. Top 5 / Top 10 selection frequency
-# -------------------------------------------------
+# -----------------------------
+# Actual monthly stock returns
+# -----------------------------
+stock_returns = monthly_prices.pct_change()
 
-counts = portfolio["symbol"].value_counts()
+# -----------------------------
+# Calculate portfolio statistics
+# -----------------------------
+monthly_results = []
+correlation_results = []
 
-total_selections = len(portfolio)
+dates = sorted(portfolio["date"].unique())
 
-top5_share = counts.head(5).sum() / total_selections
-top10_share = counts.head(10).sum() / total_selections
+for date in dates:
 
-print("\n=== SELECTION CONCENTRATION ===")
-print("Top 5 selection share:", round(top5_share * 100, 2), "%")
-print("Top 10 selection share:", round(top10_share * 100, 2), "%")
+    holdings = portfolio.loc[
+        portfolio["date"] == date,
+        "symbol"
+    ].tolist()
 
-print("\nMost frequently selected stocks:")
-print(counts.head(20).to_string())
+    holdings = [
+        s for s in holdings
+        if s in stock_returns.columns
+    ]
 
-# -------------------------------------------------
-# 2. Single-stock maximum portfolio weight
-# -------------------------------------------------
+    if len(holdings) < 10:
+        continue
 
-max_weight = 1 / TOP_ID
+    returns = stock_returns.loc[date, holdings].dropna()
 
-print("\n=== SINGLE STOCK RISK ===")
-print("Maximum equal-weight stock allocation:",
-      round(max_weight * 100, 2), "%")
+    if len(returns) < 10:
+        continue
 
-# -------------------------------------------------
-# 3. Monthly turnover
-# -------------------------------------------------
+    # Equal-weight portfolio
+    weights = pd.Series(
+        1 / len(returns),
+        index=returns.index
+    )
 
+    contribution = weights * returns
+
+    # Top stock return contribution
+    contribution_sorted = contribution.sort_values(
+        ascending=False
+    )
+
+    total_return = contribution.sum()
+
+    if total_return != 0:
+
+        top5_contribution = (
+            contribution_sorted.head(5).sum()
+            / total_return
+        )
+
+        top10_contribution = (
+            contribution_sorted.head(10).sum()
+            / total_return
+        )
+
+    else:
+        top5_contribution = np.nan
+        top10_contribution = np.nan
+
+    # Concentration using absolute contribution
+    absolute_contribution = contribution.abs()
+
+    absolute_total = absolute_contribution.sum()
+
+    if absolute_total > 0:
+        top5_abs = (
+            absolute_contribution
+            .sort_values(ascending=False)
+            .head(5)
+            .sum()
+            / absolute_total
+        )
+
+        top10_abs = (
+            absolute_contribution
+            .sort_values(ascending=False)
+            .head(10)
+            .sum()
+            / absolute_total
+        )
+    else:
+        top5_abs = np.nan
+        top10_abs = np.nan
+
+    # Herfindahl concentration
+    contribution_weights = (
+        absolute_contribution / absolute_total
+    )
+
+    effective_bets = 1 / (
+        contribution_weights ** 2
+    ).sum()
+
+    monthly_results.append({
+        "date": date,
+        "holdings": len(returns),
+        "portfolio_return": total_return,
+        "top5_return_contribution": top5_contribution,
+        "top10_return_contribution": top10_contribution,
+        "top5_absolute_contribution": top5_abs,
+        "top10_absolute_contribution": top10_abs,
+        "effective_bets": effective_bets
+    })
+
+    # -----------------------------
+    # Holding correlation
+    # -----------------------------
+    daily_window = prices.loc[
+        date - pd.DateOffset(months=3):date,
+        holdings
+    ].pct_change()
+
+    corr = daily_window.corr()
+
+    upper = corr.where(
+        np.triu(
+            np.ones(corr.shape),
+            k=1
+        ).astype(bool)
+    )
+
+    avg_corr = upper.stack().mean()
+
+    correlation_results.append({
+        "date": date,
+        "average_pairwise_correlation": avg_corr
+    })
+
+results = pd.DataFrame(monthly_results)
+correlations = pd.DataFrame(correlation_results)
+
+# -----------------------------
+# Turnover
+# -----------------------------
 monthly_sets = (
     portfolio.groupby("date")["symbol"]
     .apply(set)
@@ -181,65 +306,161 @@ for date, current in monthly_sets.items():
         previous = current
         continue
 
-    removed = previous - current
     added = current - previous
+    removed = previous - current
 
     turnover = len(removed) / TOP_ID
 
     turnovers.append({
         "date": date,
         "turnover": turnover,
-        "removed": len(removed),
-        "added": len(added)
+        "added": len(added),
+        "removed": len(removed)
     })
 
     previous = current
 
 turnover_df = pd.DataFrame(turnovers)
 
-print("\n=== TURNOVER ===")
+# -----------------------------
+# Final report
+# -----------------------------
+print("\n===================================")
+print("PORTFOLIO CONCENTRATION TEST")
+print("===================================")
+
+print(
+    "Months tested:",
+    len(results)
+)
+
+print(
+    "Average Top-5 return contribution:",
+    round(
+        results["top5_return_contribution"].median() * 100,
+        2
+    ),
+    "%"
+)
+
+print(
+    "Average Top-10 return contribution:",
+    round(
+        results["top10_return_contribution"].median() * 100,
+        2
+    ),
+    "%"
+)
+
+print(
+    "Median Top-5 absolute contribution:",
+    round(
+        results["top5_absolute_contribution"].median() * 100,
+        2
+    ),
+    "%"
+)
+
+print(
+    "Median Top-10 absolute contribution:",
+    round(
+        results["top10_absolute_contribution"].median() * 100,
+        2
+    ),
+    "%"
+)
+
+print(
+    "Median effective number of bets:",
+    round(
+        results["effective_bets"].median(),
+        2
+    )
+)
+
+print(
+    "Minimum effective number of bets:",
+    round(
+        results["effective_bets"].min(),
+        2
+    )
+)
+
+print(
+    "Median average stock correlation:",
+    round(
+        correlations[
+            "average_pairwise_correlation"
+        ].median(),
+        3
+    )
+)
+
+print(
+    "Maximum average stock correlation:",
+    round(
+        correlations[
+            "average_pairwise_correlation"
+        ].max(),
+        3
+    )
+)
 
 if not turnover_df.empty:
+
     print(
         "Average monthly turnover:",
-        round(turnover_df["turnover"].mean() * 100, 2),
+        round(
+            turnover_df["turnover"].mean() * 100,
+            2
+        ),
         "%"
     )
 
     print(
         "Maximum monthly turnover:",
-        round(turnover_df["turnover"].max() * 100, 2),
+        round(
+            turnover_df["turnover"].max() * 100,
+            2
+        ),
         "%"
     )
 
-# -------------------------------------------------
-# 4. Effective number of bets
-# -------------------------------------------------
+print(
+    "Maximum single-stock weight:",
+    round(
+        100 / TOP_ID,
+        2
+    ),
+    "%"
+)
 
-weights = counts / counts.sum()
+print("\nTop stocks by selection frequency:")
+print(
+    portfolio["symbol"]
+    .value_counts()
+    .head(15)
+    .to_string()
+)
 
-effective_bets = 1 / (weights ** 2).sum()
+# -----------------------------
+# Save detailed results
+# -----------------------------
+results.to_csv(
+    "portfolio_concentration_monthly.csv",
+    index=False
+)
 
-print("\n=== EFFECTIVE NUMBER OF BETS ===")
-print("Effective number of bets:",
-      round(effective_bets, 2))
+correlations.to_csv(
+    "portfolio_correlation_monthly.csv",
+    index=False
+)
 
-# -------------------------------------------------
-# Final summary
-# -------------------------------------------------
+if not turnover_df.empty:
+    turnover_df.to_csv(
+        "portfolio_turnover_monthly.csv",
+        index=False
+    )
 
-print("\n=== PORTFOLIO CONCENTRATION TEST ===")
-
-print("Top 5 selection share:",
-      round(top5_share * 100, 2), "%")
-
-print("Top 10 selection share:",
-      round(top10_share * 100, 2), "%")
-
-print("Maximum single-stock weight:",
-      round(max_weight * 100, 2), "%")
-
-print("Effective number of bets:",
-      round(effective_bets, 2))
-
-print("\nThis test does NOT change Plan2.")
+print("\nDetailed result files created.")
+print("Plan2 parameters were NOT changed.")
