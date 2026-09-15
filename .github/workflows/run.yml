@@ -31,7 +31,9 @@ jobs:
       - name: Run portfolio concentration test
         run: python portfolio_concentration_test.py
       - name: Run concentration drawdown test
-        run: python concentration_drawdown_test.py  
+        run: python concentration_drawdown_test.py
+      - name: Run liquidity test
+        run: python liquidity_test.py
       - name: Upload live signals
         uses: actions/upload-artifact@v4
         with:
