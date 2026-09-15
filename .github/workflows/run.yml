@@ -47,3 +47,10 @@ jobs:
           path: |
             plan2_risk_management_monthly.csv
             plan2_risk_management_yearly.csv
+      - name: Upload volatility sizing results
+        uses: actions/upload-artifact@v4
+        with:
+          name: volatility-sizing-results
+          path: |
+            plan2_volatility_sizing_monthly.csv
+            plan2_volatility_sizing_yearly.csv     
