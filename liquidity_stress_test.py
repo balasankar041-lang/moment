@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import warnings
+import time
 
 warnings.filterwarnings("ignore")
 
@@ -128,68 +129,36 @@ print("Historical symbols:", len(symbols))
 print("Price period:", download_start.date(), "to", today.date())
 
 
-def download_data(tickers, batch_size=25):
+def download_data(tickers, batch_size=10, max_retries=5):
     close_frames = []
     volume_frames = []
-
     for i in range(0, len(tickers), batch_size):
         batch = tickers[i:i + batch_size]
-        print(
-            f"Downloading {i + 1}-{min(i + batch_size, len(tickers))}"
-        )
-
-        try:
-            data = yf.download(
-                batch,
-                start=download_start.strftime("%Y-%m-%d"),
-                end=download_end.strftime("%Y-%m-%d"),
-                auto_adjust=True,
-                progress=False,
-                threads=True,
-                group_by="column",
-            )
-
-            if data.empty:
-                continue
-
-            if isinstance(data.columns, pd.MultiIndex):
-                levels = data.columns.get_level_values(0)
-
-                if "Close" not in levels or "Volume" not in levels:
-                    continue
-
-                close = data["Close"]
-                volume = data["Volume"]
-
-            else:
-                if "Close" not in data.columns or "Volume" not in data.columns:
-                    continue
-
-                close = data[["Close"]]
-                volume = data[["Volume"]]
-                close.columns = [batch[0]]
-                volume.columns = [batch[0]]
-
-            close_frames.append(close)
-            volume_frames.append(volume)
-
-        except Exception as exc:
-            print("Batch failed:", str(exc)[:160])
-
-    if not close_frames:
-        return pd.DataFrame(), pd.DataFrame()
-
-    close = pd.concat(close_frames, axis=1, sort=True)
-    volume = pd.concat(volume_frames, axis=1, sort=True)
-
-    close = close.loc[:, ~close.columns.duplicated()].sort_index()
-    volume = volume.loc[:, ~volume.columns.duplicated()].sort_index()
-
+        print(f"Downloading {i + 1}-{min(i + batch_size, len(tickers))}")
+        success = False
+        for attempt in range(max_retries):
+            try:
+                data = yf.download(batch, start=download_start.strftime("%Y-%m-%d"), end=download_end.strftime("%Y-%m-%d"), auto_adjust=True, progress=False, threads=False, group_by="column")
+                if data.empty: raise ValueError("Empty Yahoo response")
+                if isinstance(data.columns, pd.MultiIndex):
+                    levels = data.columns.get_level_values(0)
+                    if "Close" not in levels or "Volume" not in levels: raise ValueError("Close/Volume missing")
+                    close, volume = data["Close"], data["Volume"]
+                else:
+                    if "Close" not in data.columns or "Volume" not in data.columns: raise ValueError("Close/Volume missing")
+                    close, volume = data[["Close"]].copy(), data[["Volume"]].copy()
+                    close.columns = [batch[0]]; volume.columns = [batch[0]]
+                close_frames.append(close); volume_frames.append(volume); success = True; break
+            except Exception as exc:
+                print(f"  Attempt {attempt + 1}/{max_retries} failed: {str(exc)[:160]}")
+                if attempt < max_retries - 1: time.sleep(min(60, 5 * (2 ** attempt)))
+        if not success: print("  WARNING: batch failed after all retries.")
+        time.sleep(3)
+    if not close_frames: return pd.DataFrame(), pd.DataFrame()
+    close = pd.concat(close_frames, axis=1, sort=True); volume = pd.concat(volume_frames, axis=1, sort=True)
+    close = close.loc[:, ~close.columns.duplicated()].sort_index(); volume = volume.loc[:, ~volume.columns.duplicated()].sort_index()
     common = sorted(set(close.columns) & set(volume.columns))
-
-    close = close[common].dropna(axis=1, how="all")
-    volume = volume[common]
-
+    close = close[common].dropna(axis=1, how="all"); volume = volume[common]
     return close, volume
 
 
@@ -197,6 +166,11 @@ close, volume = download_data(symbols)
 
 if close.empty or volume.empty:
     raise SystemExit("No usable price/volume data downloaded.")
+
+coverage = close.shape[1] / len(symbols)
+print(f"Price-data coverage: {close.shape[1]} / {len(symbols)} ({coverage:.1%})")
+if coverage < 0.80:
+    raise RuntimeError(f"ABORTED: price-data coverage is only {coverage:.1%}. At least 80% coverage is required. Do not use these stress-test results.")
 
 print("\nPRICE DATA")
 print("=" * 75)
