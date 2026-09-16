@@ -336,7 +336,7 @@ def plan2_signal(ticker, date):
 
 def run_strategy(liquidity_threshold):
     equity = 1.0
-    previous = set()
+    previous = {}
 
     rows = []
     selection_audit = []
