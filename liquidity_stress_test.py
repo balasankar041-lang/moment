@@ -345,7 +345,7 @@ def run_strategy(liquidity_threshold):
     skipped = 0
     filter_skips = 0
 
-    for i, date in enumerate(test_months):
+    for i, date in enumerate(test_months[:-1]):
         next_date = test_months[i + 1]
 
         candidates = [
