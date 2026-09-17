@@ -10,7 +10,10 @@ warnings.filterwarnings("ignore")
 print("NIFTY 500 PLAN 2 LIVE SCREENER")
 print("==============================")
 
-# Official Nifty 500 constituent file
+# =========================================================
+# NIFTY 500 UNIVERSE
+# =========================================================
+
 URL = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -38,18 +41,23 @@ stocks = [symbol + ".NS" for symbol in stocks]
 print(f"Nifty 500 universe loaded: {len(stocks)} stocks")
 
 # =========================================================
-# PLAN 2
+# VALIDATED PLAN 2
 # =========================================================
-# 1. Calculate 12-2 month momentum
-# 2. Select Top 100 momentum stocks
-# 3. Calculate ID
-# 4. Select lowest-ID Top 50
+# 1. 12-2 month momentum
+# 2. Top 100 momentum stocks
+# 3. Lowest ID from Top 100
+# 4. Final Top 50
+# 5. Equal weight
 # =========================================================
 
 TOP_MOMENTUM = 100
 PORTFOLIO_SIZE = 50
 
 results = []
+
+# =========================================================
+# DOWNLOAD + CALCULATE
+# =========================================================
 
 for number, symbol in enumerate(stocks, start=1):
 
@@ -75,6 +83,7 @@ for number, symbol in enumerate(stocks, start=1):
 
         # -------------------------------------------------
         # 12-2 MONTH MOMENTUM
+        # Same definition as validated backtest
         # -------------------------------------------------
 
         start_cut = close.index[-1] - pd.DateOffset(months=12)
@@ -95,14 +104,13 @@ for number, symbol in enumerate(stocks, start=1):
         momentum = p1 / p0 - 1
 
         # -------------------------------------------------
-        # ID CALCULATION
-        # Same formula as validated backtest
+        # ID
+        # Exact formula from validated backtest
         # -------------------------------------------------
 
         path = close.loc[
             (close.index >= a.index[-1])
-            &
-            (close.index <= b.index[-1])
+            & (close.index <= b.index[-1])
         ]
 
         if len(path) < 100:
@@ -110,7 +118,7 @@ for number, symbol in enumerate(stocks, start=1):
 
         daily = path.pct_change().dropna()
 
-        # Exclude zero-return days
+        # Zero-return days excluded
         daily = daily[daily != 0]
 
         if daily.empty:
@@ -127,16 +135,15 @@ for number, symbol in enumerate(stocks, start=1):
         results.append({
             "Stock": symbol.replace(".NS", ""),
             "Live Price": float(close.iloc[-1]),
-            "Momentum 12-2": momentum,
-            "Positive Days %": positive_days,
-            "Negative Days %": negative_days,
-            "ID": id_score
+            "Momentum 12-2": float(momentum),
+            "Positive Days %": float(positive_days),
+            "Negative Days %": float(negative_days),
+            "ID": float(id_score)
         })
 
     except Exception as e:
 
         print(f"Skipped {symbol}: {e}")
-
 
 # =========================================================
 # VALID RESULTS
@@ -145,43 +152,43 @@ for number, symbol in enumerate(stocks, start=1):
 df = pd.DataFrame(results)
 
 if df.empty:
-    raise RuntimeError(
-        "No stocks produced valid results."
-    )
+    raise RuntimeError("No stocks produced valid results.")
 
 print("\nPRICE / SIGNAL DATA")
 print("===================")
-
 print(f"Valid stocks: {len(df)}")
-
 
 # =========================================================
 # STAGE 1
 # TOP 100 MOMENTUM
 # =========================================================
 
-df = df.sort_values(
-    "Momentum 12-2",
-    ascending=False
-).reset_index(drop=True)
+df = (
+    df.sort_values(
+        "Momentum 12-2",
+        ascending=False
+    )
+    .reset_index(drop=True)
+)
 
 df["Momentum Rank"] = df.index + 1
 
 top100 = df.head(TOP_MOMENTUM).copy()
-
 
 # =========================================================
 # STAGE 2
 # LOWEST ID
 # =========================================================
 
-top100 = top100.sort_values(
-    "ID",
-    ascending=True
-).reset_index(drop=True)
+top100 = (
+    top100.sort_values(
+        "ID",
+        ascending=True
+    )
+    .reset_index(drop=True)
+)
 
 top100["ID Rank"] = top100.index + 1
-
 
 # =========================================================
 # FINAL TOP 50
@@ -189,36 +196,37 @@ top100["ID Rank"] = top100.index + 1
 
 top50 = top100.head(PORTFOLIO_SIZE).copy()
 
+if len(top50) < PORTFOLIO_SIZE:
+    raise RuntimeError(
+        f"Only {len(top50)} final stocks available; "
+        f"need {PORTFOLIO_SIZE}."
+    )
+
 top50["Signal"] = "BUY"
-
-top50["Weight %"] = (
-    100.0 / len(top50)
-)
-
+top50["Weight %"] = 100.0 / len(top50)
 
 # =========================================================
 # FULL UNIVERSE SIGNALS
 # =========================================================
 
-top100_symbols = set(
-    top100["Stock"]
-)
-
-selected_symbols = set(
-    top50["Stock"]
-)
+top100_symbols = set(top100["Stock"])
+selected_symbols = set(top50["Stock"])
 
 df["Signal"] = "WAIT"
-
 df["Weight %"] = 0.0
 
-# Stocks inside Top 100 but not final Top 50
+# ID Rank exists for all rows.
+# Only Top 100 receive an actual rank.
+id_rank_map = top100.set_index("Stock")["ID Rank"]
+df["ID Rank"] = df["Stock"].map(id_rank_map)
+
+# Top 100 but not final Top 50
 df.loc[
     df["Stock"].isin(top100_symbols),
     "Signal"
 ] = "ID FILTER"
 
-# Final Plan 2 stocks
+# Final Top 50
 df.loc[
     df["Stock"].isin(selected_symbols),
     "Signal"
@@ -229,9 +237,8 @@ df.loc[
     "Weight %"
 ] = 100.0 / len(top50)
 
-
 # =========================================================
-# OUTPUT FILES
+# OUTPUT COLUMNS
 # =========================================================
 
 columns = [
@@ -247,24 +254,44 @@ columns = [
     "Weight %"
 ]
 
-# Full Nifty 500 ranking
+# Ensure all output columns exist
+for column in columns:
+    if column not in df.columns:
+        df[column] = np.nan
+
+for column in columns:
+    if column not in top100.columns:
+        top100[column] = np.nan
+
+for column in columns:
+    if column not in top50.columns:
+        top50[column] = np.nan
+
+# =========================================================
+# SAVE CSV FILES
+# =========================================================
+
 df[columns].to_csv(
     "live_plan2_ranking.csv",
     index=False
 )
 
-# Top 100
 top100[columns].to_csv(
     "live_plan2_top100.csv",
     index=False
 )
 
-# Final Top 50
 top50[columns].to_csv(
     "live_plan2_top50.csv",
     index=False
 )
 
+# Keep the original ranking.csv output too,
+# so existing workflow/artifacts do not break.
+df[columns].to_csv(
+    "ranking.csv",
+    index=False
+)
 
 # =========================================================
 # DISPLAY FINAL RESULT
@@ -279,48 +306,39 @@ print(f"Valid stocks: {len(df)}")
 print(f"Top momentum: {TOP_MOMENTUM}")
 print(f"Final portfolio: {len(top50)}")
 
-
 print("\nTOP 50 PLAN 2")
 print("------------------------------------------")
 
 display_df = top50[columns].copy()
 
-display_df["Live Price"] = (
-    display_df["Live Price"]
-    .map(lambda x: f"{x:.2f}")
+display_df["Live Price"] = display_df["Live Price"].map(
+    lambda x: f"{x:.2f}"
 )
 
-display_df["Momentum 12-2"] = (
-    display_df["Momentum 12-2"]
-    .map(lambda x: f"{x:.2%}")
+display_df["Momentum 12-2"] = display_df["Momentum 12-2"].map(
+    lambda x: f"{x:.2%}"
 )
 
-display_df["Positive Days %"] = (
-    display_df["Positive Days %"]
-    .map(lambda x: f"{x:.2%}")
+display_df["Positive Days %"] = display_df["Positive Days %"].map(
+    lambda x: f"{x:.2%}"
 )
 
-display_df["Negative Days %"] = (
-    display_df["Negative Days %"]
-    .map(lambda x: f"{x:.2%}")
+display_df["Negative Days %"] = display_df["Negative Days %"].map(
+    lambda x: f"{x:.2%}"
 )
 
-display_df["ID"] = (
-    display_df["ID"]
-    .map(lambda x: f"{x:.4f}")
+display_df["ID"] = display_df["ID"].map(
+    lambda x: f"{x:.4f}"
 )
 
-display_df["Weight %"] = (
-    display_df["Weight %"]
-    .map(lambda x: f"{x:.2f}%")
+display_df["Weight %"] = display_df["Weight %"].map(
+    lambda x: f"{x:.2f}%"
 )
 
-print(
-    display_df.to_string(index=False)
-)
-
+print(display_df.to_string(index=False))
 
 print("\nFiles saved:")
+print("ranking.csv")
 print("live_plan2_ranking.csv")
 print("live_plan2_top100.csv")
 print("live_plan2_top50.csv")
