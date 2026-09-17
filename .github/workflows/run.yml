@@ -53,4 +53,4 @@ jobs:
         run: python concentration_drawdown_test.py
 
       - name: Run liquidity stress test
-        run: python liquidity_stress_test_v2.py
+        run: python liquidity_stress_test.py
