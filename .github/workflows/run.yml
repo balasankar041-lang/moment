@@ -13,47 +13,121 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+      # ==========================================
+      # 1. CHECKOUT
+      # ==========================================
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ==========================================
+      # 2. PYTHON
+      # ==========================================
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # ==========================================
+      # 3. DEPENDENCIES
+      # ==========================================
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Persistent Yahoo historical-data cache.
-      # First run builds the cache; later runs update only the recent period.
+      # ==========================================
+      # 4. PRICE CACHE
+      # ==========================================
       - name: Restore price cache
         uses: actions/cache@v4
         with:
           path: data/price_cache
-          key: price-cache-${{ runner.os }}-${{ hashFiles('nifty500_membership_timeline.csv') }}
+          key: price-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             price-cache-${{ runner.os }}-
 
       - name: Update price cache
         run: python price_cache.py
 
+      # ==========================================
+      # 5. MAIN LIVE SCREENER
+      # ==========================================
       - name: Run main screener
         run: python main.py
 
+      # ==========================================
+      # 6. ORIGINAL BACKTEST
+      # ==========================================
       - name: Run backtest
         run: python backtest.py
 
+      # ==========================================
+      # 7. PLAN 2 EXACT BACKTEST
+      # ==========================================
       - name: Run Plan2 backtest
         run: python backtest_id.py
 
+      # ==========================================
+      # 8. WALK FORWARD
+      # ==========================================
       - name: Run Walk Forward
         run: python walk_forward.py
 
-      - name: Run liquidity test
+      # ==========================================
+      # 9. BEAR MARKET TEST
+      # ==========================================
+      - name: Run Bear Market Test
+        run: python bear_market_test.py
+
+      # ==========================================
+      # 10. RISK MANAGEMENT TEST
+      # ==========================================
+      - name: Run Risk Management Test
+        run: python risk_management_test.py
+
+      # ==========================================
+      # 11. LIQUIDITY TEST
+      # ==========================================
+      - name: Run Liquidity Test
         run: python liquidity_test.py
 
-      - name: Run concentration drawdown test
+      # ==========================================
+      # 12. REALISTIC LIQUIDITY TEST
+      # ==========================================
+      - name: Run Realistic Liquidity Test
+        run: python liquidity_realistic_test.py
+
+      # ==========================================
+      # 13. LIQUIDITY STRESS TEST
+      # ==========================================
+      - name: Run Liquidity Stress Test
+        run: python liquidity_stress_test.py
+
+      # ==========================================
+      # 14. CONCENTRATION DRAWDOWN TEST
+      # ==========================================
+      - name: Run Concentration Drawdown Test
         run: python concentration_drawdown_test.py
 
-      - name: Run liquidity stress test
-        run: python liquidity_stress_test.py
+      # ==========================================
+      # 15. PORTFOLIO CONCENTRATION TEST
+      # ==========================================
+      - name: Run Portfolio Concentration Test
+        run: python portfolio_concentration_test.py
+
+      # ==========================================
+      # 16. VOLATILITY POSITION SIZING TEST
+      # ==========================================
+      - name: Run Volatility Position Sizing Test
+        run: python volatility_position_sizing_test.py
+
+      # ==========================================
+      # 17. PLAN 2 ROBUSTNESS TEST
+      # ==========================================
+      - name: Run Plan2 Robustness Test
+        run: python plan2_robustness_final.py
+
+      # ==========================================
+      # 18. COMPLETE
+      # ==========================================
+      - name: Complete
+        run: echo "All screener and validation tests completed successfully."
