@@ -46,6 +46,9 @@ jobs:
       - name: Run Plan2 backtest
         run: python backtest_id.py
 
+      - name: Run Walk Forward
+        run: python walk_forward.py
+
       - name: Run liquidity test
         run: python liquidity_test.py
 
