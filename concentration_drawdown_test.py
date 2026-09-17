@@ -23,7 +23,7 @@ print("Historical symbols:", len(symbols))
 prices = yf.download(
     [s + ".NS" for s in symbols],
     start="2019-01-01",
-    end="2026-09-16",
+    end="2026-09-01",
     auto_adjust=True,
     progress=False,
     threads=True
@@ -40,6 +40,12 @@ prices.columns = [
 prices = prices.sort_index()
 
 monthly_prices = prices.resample("ME").last()
+
+# Completed months only: exclude the in-progress September 2026 month.
+completed_month_end = pd.Timestamp("2026-08-31")
+monthly_prices = monthly_prices[
+    monthly_prices.index <= completed_month_end
+]
 
 # ---------------------------------
 # Build exact Plan2 portfolios
