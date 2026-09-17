@@ -1,66 +1,56 @@
-name: Run Quant Screener
+name: Stock Screener
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "30 12 * * 1-5"
+
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - run: python backtest.py
-      - run: python backtest_id.py
-      - run: python live_screener.py
-      - run: python plan2_robustness_final.py
-      - run: python walk_forward.py
-      - name: Run bear market test
-        run: python bear_market_test.py
-      - name: Run risk management test
-        run: python risk_management_test.py
-      - name: Run volatility position sizing test
-        run: python volatility_position_sizing_test.py
-      - name: Run portfolio concentration test
-        run: python portfolio_concentration_test.py
-      - name: Run concentration drawdown test
-        run: python concentration_drawdown_test.py
+      # Persistent Yahoo historical-data cache.
+      # First run builds the cache; later runs update only the recent period.
+      - name: Restore price cache
+        uses: actions/cache@v4
+        with:
+          path: data/price_cache
+          key: price-cache-${{ runner.os }}-${{ hashFiles('nifty500_membership_timeline.csv') }}
+          restore-keys: |
+            price-cache-${{ runner.os }}-
+
+      - name: Update price cache
+        run: python price_cache.py
+
+      - name: Run main screener
+        run: python main.py
+
+      - name: Run backtest
+        run: python backtest.py
+
+      - name: Run Plan2 backtest
+        run: python backtest_id.py
+
       - name: Run liquidity test
         run: python liquidity_test.py
-      - name: Run multi-capital realistic liquidity test
-        run: python liquidity_realistic_test.py
+
+      - name: Run concentration drawdown test
+        run: python concentration_drawdown_test.py
+
       - name: Run liquidity stress test
-        run: python liquidity_stress_test.py  
-      - name: Upload live signals
-        uses: actions/upload-artifact@v4
-        with:
-         name: live-signals
-         path: live_top50_signals.csv
-      - name: Upload robustness results
-        uses: actions/upload-artifact@v4
-        with:
-          name: robustness-results
-          path: |
-             plan2_robustness_results_validated.csv
-             plan2_robustness_base_validation_failed.csv
-      - name: Upload risk management results
-        uses: actions/upload-artifact@v4
-        with:
-          name: risk-management-results
-          path: |
-            plan2_risk_management_monthly.csv
-            plan2_risk_management_yearly.csv
-      - name: Upload volatility sizing results
-        uses: actions/upload-artifact@v4
-        with:
-          name: volatility-sizing-results
-          path: |
-            plan2_volatility_sizing_monthly.csv
-            plan2_volatility_sizing_yearly.csv     
+        run: python liquidity_stress_test_v2.py
