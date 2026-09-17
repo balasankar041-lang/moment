@@ -1,17 +1,14 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import time
 
 TOP_MOMENTUM = 100
 TOP_ID = 50
 
-# Minimum liquidity thresholds for research
-MIN_AVG_DAILY_VALUE = 5_000_000       # ₹50 lakh/day
-MIN_MEDIAN_DAILY_VALUE = 2_500_000    # ₹25 lakh/day
-
-# -------------------------------------------------
-# Load historical membership
-# -------------------------------------------------
+# ---------------------------------
+# Load historical Nifty 500 members
+# ---------------------------------
 membership = pd.read_csv("nifty500_membership_timeline.csv")
 
 membership["date"] = pd.to_datetime(membership["effective_date"])
@@ -21,45 +18,88 @@ symbols = sorted(membership["symbol"].dropna().unique())
 
 print("Historical symbols:", len(symbols))
 
-# -------------------------------------------------
-# Download OHLCV data
-# -------------------------------------------------
-data = yf.download(
-    [s + ".NS" for s in symbols],
-    start="2019-01-01",
-    end="2026-09-16",
-    auto_adjust=True,
-    progress=False,
-    threads=True
+# ---------------------------------
+# Download daily prices
+# ---------------------------------
+# Download in small sequential batches with retries to reduce Yahoo Finance rate limits.
+tickers = [s + ".NS" for s in symbols]
+batch_size = 10
+frames = []
+
+for start_idx in range(0, len(tickers), batch_size):
+    batch = tickers[start_idx:start_idx + batch_size]
+    batch_prices = None
+
+    for attempt in range(5):
+        try:
+            batch_data = yf.download(
+                batch,
+                start="2019-01-01",
+                end="2026-09-01",
+                auto_adjust=True,
+                progress=False,
+                threads=False
+            )
+
+            if batch_data is not None and not batch_data.empty:
+                batch_prices = batch_data["Close"]
+                break
+
+        except Exception as e:
+            print(
+                f"Batch {start_idx + 1}-{start_idx + len(batch)} "
+                f"attempt {attempt + 1}/5 failed: {e}"
+            )
+
+        if attempt < 4:
+            time.sleep(min(60, 5 * (2 ** attempt)))
+
+    if batch_prices is not None and not batch_prices.empty:
+        if isinstance(batch_prices, pd.Series):
+            batch_prices = batch_prices.to_frame()
+        frames.append(batch_prices)
+
+    time.sleep(3)
+
+if not frames:
+    raise RuntimeError("Yahoo Finance returned no usable price data.")
+
+prices = pd.concat(frames, axis=1)
+prices = prices.loc[:, ~prices.columns.duplicated()]
+
+coverage = prices.shape[1] / len(symbols)
+print(
+    f"Stocks with close data: {prices.shape[1]} / "
+    f"{len(symbols)} ({coverage:.1%})"
 )
 
-close = data["Close"]
-volume = data["Volume"]
+if coverage < 0.80:
+    raise RuntimeError(
+        f"ABORTED: price-data coverage is only {coverage:.1%}. "
+        "At least 80% coverage is required."
+    )
 
-if isinstance(close, pd.Series):
-    close = close.to_frame()
+if isinstance(prices, pd.Series):
+    prices = prices.to_frame()
 
-if isinstance(volume, pd.Series):
-    volume = volume.to_frame()
-
-close.columns = [
+prices.columns = [
     c.replace(".NS", "") if isinstance(c, str) else c
-    for c in close.columns
+    for c in prices.columns
 ]
 
-volume.columns = [
-    c.replace(".NS", "") if isinstance(c, str) else c
-    for c in volume.columns
+prices = prices.sort_index()
+
+monthly_prices = prices.resample("ME").last()
+
+# Completed months only; September 2026 is still in progress.
+completed_month_end = pd.Timestamp("2026-08-31")
+monthly_prices = monthly_prices[
+    monthly_prices.index <= completed_month_end
 ]
 
-close = close.sort_index()
-volume = volume.sort_index()
-
-monthly_prices = close.resample("ME").last()
-
-# -------------------------------------------------
-# Build exact Plan2 portfolio
-# -------------------------------------------------
+# ---------------------------------
+# Build exact Plan2 portfolios
+# ---------------------------------
 portfolio_records = []
 
 for date in monthly_prices.index:
@@ -85,6 +125,7 @@ for date in monthly_prices.index:
 
     current = monthly_prices.loc[date, universe]
 
+    # 12-month momentum
     past_date = date - pd.DateOffset(months=12)
 
     past_dates = monthly_prices.index[
@@ -111,13 +152,13 @@ for date in monthly_prices.index:
 
     top100 = momentum.nlargest(TOP_MOMENTUM)
 
-    # -------------------------------------------------
+    # ---------------------------------
     # Plan2 ID
-    # -------------------------------------------------
+    # ---------------------------------
     start_date = date - pd.DateOffset(months=12)
     end_date = date - pd.DateOffset(months=2)
 
-    daily = close.loc[
+    daily = prices.loc[
         start_date:end_date,
         top100.index
     ]
@@ -167,10 +208,10 @@ if portfolio.empty:
 
 print("Portfolio selection records:", len(portfolio))
 
-# -------------------------------------------------
-# Liquidity analysis
-# -------------------------------------------------
-results = []
+# ---------------------------------
+# Calculate monthly portfolio return
+# ---------------------------------
+monthly_returns = []
 
 for date in sorted(portfolio["date"].unique()):
 
@@ -181,148 +222,313 @@ for date in sorted(portfolio["date"].unique()):
 
     holdings = [
         s for s in holdings
-        if s in close.columns and s in volume.columns
+        if s in monthly_prices.columns
     ]
 
     if len(holdings) < 10:
         continue
 
-    # Use previous 60 trading days to estimate liquidity
-    end_date = date
-    start_date = date - pd.DateOffset(days=100)
+    # Return from previous month-end to current month-end
+    dates = monthly_prices.index
 
-    prices_window = close.loc[
-        start_date:end_date,
+    idx = dates.get_loc(date)
+
+    if idx == 0:
+        continue
+
+    previous_date = dates[idx - 1]
+
+    current_prices = monthly_prices.loc[
+        date,
         holdings
     ]
 
-    volume_window = volume.loc[
-        start_date:end_date,
+    previous_prices = monthly_prices.loc[
+        previous_date,
         holdings
     ]
 
-    # Daily traded value = price × volume
-    traded_value = prices_window * volume_window
+    returns = (
+        current_prices / previous_prices - 1
+    ).replace(
+        [np.inf, -np.inf],
+        np.nan
+    ).dropna()
 
-    avg_daily_value = traded_value.mean()
-    median_daily_value = traded_value.median()
+    if len(returns) < 10:
+        continue
 
-    # Portfolio-level statistics
-    avg_value = avg_daily_value.mean()
-    median_value = median_daily_value.median()
+    # Equal-weight Plan2
+    portfolio_return = returns.mean()
 
-    # Count stocks below thresholds
-    below_avg = (
-        avg_daily_value < MIN_AVG_DAILY_VALUE
-    ).sum()
+    # Absolute contribution
+    contributions = returns / len(returns)
 
-    below_median = (
-        median_daily_value < MIN_MEDIAN_DAILY_VALUE
-    ).sum()
+    absolute_contribution = contributions.abs()
 
-    # Percentage of portfolio with weak liquidity
-    weak_avg_pct = below_avg / len(holdings)
-    weak_median_pct = below_median / len(holdings)
+    total_absolute = absolute_contribution.sum()
 
-    # Worst stock in this portfolio
-    worst_symbol = avg_daily_value.idxmin()
-    worst_value = avg_daily_value.min()
+    if total_absolute > 0:
 
-    results.append({
+        top5_abs = (
+            absolute_contribution
+            .sort_values(ascending=False)
+            .head(5)
+            .sum()
+            / total_absolute
+        )
+
+        top10_abs = (
+            absolute_contribution
+            .sort_values(ascending=False)
+            .head(10)
+            .sum()
+            / total_absolute
+        )
+
+    else:
+
+        top5_abs = np.nan
+        top10_abs = np.nan
+
+    # Effective bets
+    if total_absolute > 0:
+
+        contribution_weights = (
+            absolute_contribution / total_absolute
+        )
+
+        effective_bets = 1 / (
+            contribution_weights ** 2
+        ).sum()
+
+    else:
+
+        effective_bets = np.nan
+
+    monthly_returns.append({
         "date": date,
-        "holdings": len(holdings),
-        "portfolio_avg_daily_value": avg_value,
-        "portfolio_median_daily_value": median_value,
-        "stocks_below_avg_threshold": below_avg,
-        "stocks_below_median_threshold": below_median,
-        "weak_avg_pct": weak_avg_pct,
-        "weak_median_pct": weak_median_pct,
-        "worst_symbol": worst_symbol,
-        "worst_avg_daily_value": worst_value
+        "portfolio_return": portfolio_return,
+        "top5_absolute_contribution": top5_abs,
+        "top10_absolute_contribution": top10_abs,
+        "effective_bets": effective_bets,
+        "holdings": len(returns)
     })
 
-results = pd.DataFrame(results)
+results = pd.DataFrame(monthly_returns)
 
 if results.empty:
-    raise RuntimeError("No liquidity results generated.")
+    raise RuntimeError("No monthly portfolio results generated.")
 
-# -------------------------------------------------
-# Summary
-# -------------------------------------------------
+# ---------------------------------
+# Calculate drawdown
+# ---------------------------------
+results["equity"] = (
+    1 + results["portfolio_return"]
+).cumprod()
+
+results["peak"] = results["equity"].cummax()
+
+results["drawdown"] = (
+    results["equity"] / results["peak"] - 1
+)
+
+# ---------------------------------
+# Identify worst drawdown months
+# ---------------------------------
+worst = results.sort_values(
+    "portfolio_return"
+).head(15).copy()
+
 print("\n===================================")
-print("LIQUIDITY TEST")
+print("CONCENTRATION vs DRAWDOWN TEST")
 print("===================================")
 
 print("Months tested:", len(results))
 
 print(
-    "Median portfolio average daily traded value: ₹",
-    f"{results['portfolio_avg_daily_value'].median():,.0f}"
-)
-
-print(
-    "Minimum portfolio average daily traded value: ₹",
-    f"{results['portfolio_avg_daily_value'].min():,.0f}"
-)
-
-print(
-    "Median portfolio median daily traded value: ₹",
-    f"{results['portfolio_median_daily_value'].median():,.0f}"
-)
-
-print(
-    "Median % stocks below ₹50 lakh/day:",
-    round(results["weak_avg_pct"].median() * 100, 2),
+    "Worst monthly return:",
+    round(
+        worst.iloc[0]["portfolio_return"] * 100,
+        2
+    ),
     "%"
 )
 
 print(
-    "Maximum % stocks below ₹50 lakh/day:",
-    round(results["weak_avg_pct"].max() * 100, 2),
+    "Maximum portfolio drawdown:",
+    round(
+        results["drawdown"].min() * 100,
+        2
+    ),
+    "%"
+)
+
+print("\nWorst 15 portfolio months:")
+
+display_columns = [
+    "date",
+    "portfolio_return",
+    "drawdown",
+    "top5_absolute_contribution",
+    "top10_absolute_contribution",
+    "effective_bets",
+    "holdings"
+]
+
+print(
+    worst[display_columns].to_string(
+        index=False
+    )
+)
+
+# ---------------------------------
+# Compare worst months vs all months
+# ---------------------------------
+bottom_10 = results.nsmallest(
+    max(1, int(len(results) * 0.10)),
+    "portfolio_return"
+)
+
+normal = results[
+    ~results.index.isin(bottom_10.index)
+]
+
+print("\n===================================")
+print("WORST 10% MONTHS vs NORMAL MONTHS")
+print("===================================")
+
+print(
+    "Worst 10% average return:",
+    round(
+        bottom_10["portfolio_return"].mean() * 100,
+        2
+    ),
     "%"
 )
 
 print(
-    "Median % stocks below ₹25 lakh/day:",
-    round(results["weak_median_pct"].median() * 100, 2),
+    "Worst 10% median effective bets:",
+    round(
+        bottom_10["effective_bets"].median(),
+        2
+    )
+)
+
+print(
+    "Normal median effective bets:",
+    round(
+        normal["effective_bets"].median(),
+        2
+    )
+)
+
+print(
+    "Worst 10% median Top-5 absolute contribution:",
+    round(
+        bottom_10[
+            "top5_absolute_contribution"
+        ].median() * 100,
+        2
+    ),
     "%"
 )
 
 print(
-    "Maximum % stocks below ₹25 lakh/day:",
-    round(results["weak_median_pct"].max() * 100, 2),
+    "Normal median Top-5 absolute contribution:",
+    round(
+        normal[
+            "top5_absolute_contribution"
+        ].median() * 100,
+        2
+    ),
     "%"
 )
 
-# -------------------------------------------------
-# Worst liquidity months
-# -------------------------------------------------
-print("\nWorst liquidity months:")
-
-worst_months = results.sort_values(
-    "portfolio_avg_daily_value"
-).head(10)
-
 print(
-    worst_months[
-        [
-            "date",
-            "portfolio_avg_daily_value",
-            "weak_avg_pct",
-            "worst_symbol",
-            "worst_avg_daily_value"
-        ]
-    ].to_string(index=False)
+    "Worst 10% median Top-10 absolute contribution:",
+    round(
+        bottom_10[
+            "top10_absolute_contribution"
+        ].median() * 100,
+        2
+    ),
+    "%"
 )
 
-# -------------------------------------------------
-# Worst individual stocks
-# -------------------------------------------------
-print("\nWorst individual liquidity observations:")
+print(
+    "Normal median Top-10 absolute contribution:",
+    round(
+        normal[
+            "top10_absolute_contribution"
+        ].median() * 100,
+        2
+    ),
+    "%"
+)
 
-individual_records = []
+# ---------------------------------
+# Concentrated drawdown months
+# ---------------------------------
+concentration_threshold = (
+    results["effective_bets"].quantile(0.10)
+)
 
-for date in sorted(portfolio["date"].unique()):
+concentrated = results[
+    results["effective_bets"]
+    <= concentration_threshold
+]
+
+concentrated_drawdown_months = (
+    concentrated[
+        concentrated["portfolio_return"] < 0
+    ]
+)
+
+print("\n===================================")
+print("CONCENTRATED NEGATIVE MONTHS")
+print("===================================")
+
+print(
+    "10th percentile effective bets:",
+    round(
+        concentration_threshold,
+        2
+    )
+)
+
+print(
+    "Concentrated negative months:",
+    len(concentrated_drawdown_months)
+)
+
+print(
+    "Total negative months:",
+    int(
+        (results["portfolio_return"] < 0).sum()
+    )
+)
+
+if len(concentrated_drawdown_months) > 0:
+
+    print(
+        "Average return during concentrated "
+        "negative months:",
+        round(
+            concentrated_drawdown_months[
+                "portfolio_return"
+            ].mean() * 100,
+            2
+        ),
+        "%"
+    )
+
+# ---------------------------------
+# Correlation test
+# ---------------------------------
+corr_values = []
+
+for date in results["date"]:
 
     holdings = portfolio.loc[
         portfolio["date"] == date,
@@ -331,55 +537,78 @@ for date in sorted(portfolio["date"].unique()):
 
     holdings = [
         s for s in holdings
-        if s in close.columns and s in volume.columns
+        if s in prices.columns
     ]
 
-    if not holdings:
+    if len(holdings) < 10:
         continue
 
-    start_date = date - pd.DateOffset(days=100)
-
-    traded_value = (
-        close.loc[start_date:date, holdings]
-        * volume.loc[start_date:date, holdings]
+    window_start = (
+        date - pd.DateOffset(months=3)
     )
 
-    median_value = traded_value.median()
+    daily_returns = prices.loc[
+        window_start:date,
+        holdings
+    ].pct_change()
 
-    for symbol in median_value.dropna().index:
+    corr = daily_returns.corr()
 
-        individual_records.append({
-            "date": date,
-            "symbol": symbol,
-            "median_daily_traded_value":
-                median_value[symbol]
-        })
+    upper = corr.where(
+        np.triu(
+            np.ones(corr.shape),
+            k=1
+        ).astype(bool)
+    )
 
-individual = pd.DataFrame(individual_records)
+    avg_corr = upper.stack().mean()
 
-if not individual.empty:
+    corr_values.append({
+        "date": date,
+        "average_correlation": avg_corr
+    })
 
-    worst_individual = individual.sort_values(
-        "median_daily_traded_value"
-    ).head(20)
+correlation_df = pd.DataFrame(corr_values)
+
+print("\n===================================")
+print("CORRELATION")
+print("===================================")
+
+if not correlation_df.empty:
 
     print(
-        worst_individual.to_string(index=False)
+        "Median correlation:",
+        round(
+            correlation_df[
+                "average_correlation"
+            ].median(),
+            3
+        )
     )
 
-# -------------------------------------------------
-# Save results
-# -------------------------------------------------
+    print(
+        "Maximum correlation:",
+        round(
+            correlation_df[
+                "average_correlation"
+            ].max(),
+            3
+        )
+    )
+
+# ---------------------------------
+# Save detailed results
+# ---------------------------------
 results.to_csv(
-    "liquidity_monthly.csv",
+    "concentration_drawdown_monthly.csv",
     index=False
 )
 
-if not individual.empty:
-    individual.to_csv(
-        "liquidity_individual.csv",
-        index=False
-    )
+correlation_df.to_csv(
+    "concentration_drawdown_correlation.csv",
+    index=False
+)
 
-print("\nDetailed liquidity files created.")
-print("Plan2 parameters were NOT changed.")
+print("\nDetailed files created.")
+
+print("\nPlan2 parameters were NOT changed.")
