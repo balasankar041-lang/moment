@@ -29,27 +29,9 @@ stocks = [symbol + ".NS" for symbol in stocks]
 
 print(f"Nifty 500 universe loaded: {len(stocks)} stocks")
 
-# Optional recent-IPO / recent-listing watchlist.
-# Add NSE symbols (without .NS) to ipo_watchlist.csv to track them separately.
-# IPO stocks are NOT inserted into Plan 2 until enough history exists.
-IPO_LIST_FILE = Path("ipo_watchlist.csv")
-ipo_symbols = []
-if IPO_LIST_FILE.exists():
-    try:
-        ipo_df = pd.read_csv(IPO_LIST_FILE)
-        if "Symbol" in ipo_df.columns:
-            ipo_symbols = (
-                ipo_df["Symbol"].dropna().astype(str).str.strip().str.upper().unique().tolist()
-            )
-    except Exception as e:
-        print(f"Warning: could not read IPO watchlist: {e}")
-
-print(f"IPO watchlist symbols: {len(ipo_symbols)}")
-
 TOP_MOMENTUM = 100
 PORTFOLIO_SIZE = 50
 HISTORY_FILE = Path("signal_history.csv")
-IPO_WATCH_FILE = Path("ipo_watch.csv")
 
 results = []
 
@@ -114,59 +96,6 @@ for number, symbol in enumerate(stocks, start=1):
         print(f"Skipped {symbol}: {e}")
 
 df = pd.DataFrame(results)
-
-# ---------------------------------------------------------
-# IPO / RECENT LISTING WATCH
-# ---------------------------------------------------------
-# Track watchlist IPOs separately. Require at least 20 trading days
-# for a basic price/status snapshot; do not force them into Plan 2.
-ipo_watch_rows = []
-for ipo_symbol in ipo_symbols:
-    yf_symbol = ipo_symbol + ".NS"
-    try:
-        ipo_data = yf.download(
-            yf_symbol, period="3mo", auto_adjust=True,
-            progress=False, threads=False
-        )
-        if ipo_data.empty:
-            ipo_watch_rows.append({
-                "Symbol": ipo_symbol,
-                "Status": "IPO WATCH - NO DATA",
-                "Live Price": np.nan,
-                "Trading Days": 0,
-                "Plan 2 Eligible": "NO"
-            })
-            continue
-
-        ipo_close = ipo_data["Close"].squeeze().dropna()
-        days = len(ipo_close)
-        if days < 20:
-            status = "IPO WATCH - BUILDING HISTORY"
-            eligible = "NO"
-        elif days < MIN_HISTORY_ROWS:
-            status = "IPO WATCH - NOT ENOUGH HISTORY FOR PLAN 2"
-            eligible = "NO"
-        else:
-            status = "PLAN 2 ELIGIBLE HISTORY"
-            eligible = "YES"
-
-        ipo_watch_rows.append({
-            "Symbol": ipo_symbol,
-            "Status": status,
-            "Live Price": float(ipo_close.iloc[-1]),
-            "Trading Days": days,
-            "Plan 2 Eligible": eligible
-        })
-    except Exception as e:
-        ipo_watch_rows.append({
-            "Symbol": ipo_symbol,
-            "Status": "IPO WATCH - DATA ERROR",
-            "Live Price": np.nan,
-            "Trading Days": 0,
-            "Plan 2 Eligible": "NO"
-        })
-
-pd.DataFrame(ipo_watch_rows).to_csv(IPO_WATCH_FILE, index=False)
 
 if df.empty:
     raise RuntimeError("No stocks produced valid results.")
@@ -432,6 +361,5 @@ print("live_plan2_ranking.csv")
 print("live_plan2_top100.csv")
 print("live_plan2_top50.csv")
 print("signal_history.csv")
-print("ipo_watch.csv")
 
 print("\nSTATUS: SUCCESS")
