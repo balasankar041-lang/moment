@@ -159,6 +159,7 @@ if not previous.empty and "Portfolio Signal" in previous.columns:
 # SELL = was in previous Top 50 but left current Top 50
 # WAIT = not Top 50; stocks inside Top 100 receive ID FILTER
 df["Portfolio Signal"] = "WAIT"
+df["Sell Reason"] = ""
 
 df.loc[
     df["Stock"].isin(current_top100),
@@ -175,13 +176,16 @@ df.loc[
     "Portfolio Signal"
 ] = "BUY"
 
-# SELL rows are retained from the previous Top 50 even though they are
-# no longer in the current Nifty ranking output.
+# SELL rule:
+# SELL only when a previous Top 50 stock is present in today's valid data
+# but is no longer in the current Top 50. If today's data is missing,
+# do NOT force a SELL because that could be a data/download problem.
 if previous_top50:
-    missing_sells = previous_top50 - current_top50
-    if missing_sells:
+    current_valid = set(df["Stock"])
+    sell_candidates = (previous_top50 - current_top50) & current_valid
+    if sell_candidates:
         old_rows = previous[
-            previous["Stock"].isin(missing_sells)
+            previous["Stock"].isin(sell_candidates)
         ].copy()
 
         old_rows["Portfolio Signal"] = "SELL"
@@ -194,6 +198,13 @@ if previous_top50:
         price_map = df.set_index("Stock")["Live Price"].to_dict()
         old_rows["Live Price"] = old_rows["Stock"].map(price_map).fillna(
             old_rows.get("Live Price", np.nan)
+        )
+
+        # Explain why the position is being sold.
+        old_rows["Sell Reason"] = old_rows["Stock"].map(
+            lambda s: "Dropped below Top 50; still in Top 100"
+            if s in current_top100
+            else "Dropped out of Top 100"
         )
 
         sell_columns = [
@@ -220,6 +231,9 @@ df.loc[
 # ---------------------------------------------------------
 # OUTPUT COLUMNS
 # ---------------------------------------------------------
+# Current non-SELL rows have no sell reason.
+df.loc[df["Portfolio Signal"] != "SELL", "Sell Reason"] = ""
+
 columns = [
     "Momentum Rank",
     "ID Rank",
@@ -230,6 +244,7 @@ columns = [
     "Negative Days %",
     "ID",
     "Portfolio Signal",
+    "Sell Reason",
     "Weight %"
 ]
 
