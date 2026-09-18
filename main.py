@@ -200,12 +200,16 @@ if previous_top50:
             old_rows.get("Live Price", np.nan)
         )
 
-        # Explain why the position is being sold.
+        # HOLD -> SELL safety rule:
+        # A previous holding is sold only when current valid data exists and
+        # the stock is no longer in the current Top 50. Missing/unavailable
+        # current data is NOT treated as a sell signal.
         old_rows["Sell Reason"] = old_rows["Stock"].map(
-            lambda s: "Dropped below Top 50; still in Top 100"
+            lambda s: "SELL: dropped below Top 50; still in Top 100"
             if s in current_top100
-            else "Dropped out of Top 100"
+            else "SELL: dropped out of Top 100"
         )
+        old_rows["Exit Safety"] = "Validated current data; no forced sell on missing data"
 
         sell_columns = [
             "Momentum Rank", "ID Rank", "Stock", "Live Price",
@@ -245,6 +249,7 @@ columns = [
     "ID",
     "Portfolio Signal",
     "Sell Reason",
+    "Exit Safety",
     "Weight %"
 ]
 
@@ -324,6 +329,7 @@ print(f"Previous Top 50: {len(previous_top50)}")
 print(f"BUY: {sum(top50_output['Portfolio Signal'] == 'BUY')}")
 print(f"HOLD: {sum(top50_output['Portfolio Signal'] == 'HOLD')}")
 print(f"SELL: {sum(df['Portfolio Signal'] == 'SELL')}")
+print("HOLD -> SELL safety: only valid current-data exits; missing data is not a SELL")
 
 display_df = top50_output.copy()
 display_df["Live Price"] = display_df["Live Price"].map(
