@@ -56,8 +56,8 @@ jobs:
       - name: Run Plan 2 historical backtest
         run: python backtest_id.py
 
-      - name: Run ₹20,000 capital sizing backtest
-        run: python capital_sizing_backtest_final.py
+      - name: Run ₹20,000 capital execution test
+        run: python capital_execution_test.py
 
       - name: Walk-forward validation
         run: python walk_forward.py
@@ -81,10 +81,8 @@ jobs:
           test -f live_plan2_top100.csv
           test -f live_plan2_top50.csv
           test -f ipo_watch.csv
-          test -f id_strategy_selections.csv
-          test -f capital_sizing_backtest.csv
-          test -f capital_sizing_monthly.csv
-          echo "All required outputs are present."
+          test -f capital_execution_test.csv
+          echo "Required outputs are present."
 
       - name: Upload complete results
         uses: actions/upload-artifact@v4
@@ -99,11 +97,9 @@ jobs:
             ipo_watch.csv
             ipo_watchlist.csv
             ipo_auto_discovered.csv
-            id_strategy_selections.csv
-            capital_sizing_backtest.csv
-            capital_sizing_monthly.csv
+            capital_execution_test.csv
           if-no-files-found: warn
           retention-days: 30
 
       - name: Complete
-        run: echo "PLAN 2 FULL RUN + ₹20,000 CAPITAL SIZING TEST COMPLETED"
+        run: echo "PLAN 2 FULL RUN COMPLETED"
