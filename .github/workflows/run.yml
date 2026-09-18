@@ -11,9 +11,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -25,7 +23,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # PRICE CACHE
       - name: Restore price cache
         uses: actions/cache@v4
         with:
@@ -37,19 +34,17 @@ jobs:
       - name: Update price cache
         run: python price_cache.py
 
-      # LIVE PLAN 2
-      - name: Run Plan 2 Live Screener
+      - name: Run live Plan 2 screener
         run: python main.py
 
-      - name: Save signal history
+      - name: Save signal and IPO history
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add signal_history.csv
-          git diff --cached --quiet || git commit -m "Update Plan 2 signal history"
+          git config user.email "41898282+github-actions[bot]@github.com"
+          git add signal_history.csv ipo_watchlist.csv ipo_auto_discovered.csv
+          git diff --cached --quiet || git commit -m "Update Plan 2 signals and IPO watch"
           git push
 
-      # SAVE LIVE RESULTS
       - name: Upload Plan 2 results
         uses: actions/upload-artifact@v4
         with:
@@ -60,27 +55,27 @@ jobs:
             live_plan2_top100.csv
             live_plan2_top50.csv
             ipo_watch.csv
+            ipo_auto_discovered.csv
           if-no-files-found: error
           retention-days: 30
 
-      # CORE VALIDATION
-      - name: Run Plan 2 backtest
+      - name: Backtest
         run: python backtest_id.py
 
-      - name: Run Walk Forward
+      - name: Walk forward
         run: python walk_forward.py
 
-      - name: Run Bear Market Test
+      - name: Bear market test
         run: python bear_market_test.py
 
-      - name: Run Liquidity Test
+      - name: Liquidity test
         run: python liquidity_test.py
 
-      - name: Run Liquidity Stress Test
+      - name: Liquidity stress test
         run: python liquidity_stress_test.py
 
-      - name: Run Concentration Drawdown Test
+      - name: Concentration drawdown test
         run: python concentration_drawdown_test.py
 
       - name: Complete
-        run: echo "Plan 2 live screener and core validation completed successfully."
+        run: echo "Plan 2 screener completed"
