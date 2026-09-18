@@ -89,6 +89,7 @@ jobs:
         with:
           name: plan2-capital-results-${{ github.run_id }}
           path: |
+            *.csv
             ranking.csv
             live_plan2_ranking.csv
             live_plan2_top100.csv
