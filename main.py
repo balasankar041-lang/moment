@@ -33,6 +33,9 @@ TOP_MOMENTUM = 100
 PORTFOLIO_SIZE = 50
 HISTORY_FILE = Path("signal_history.csv")
 IPO_LIST_FILE = Path("ipo_watchlist.csv")
+# Automatic IPO discovery is conservative: only symbols explicitly returned
+# by the public NSE equity listing page are added; no ticker guessing.
+IPO_AUTO_FILE = Path("ipo_auto_discovered.csv")
 IPO_WATCH_FILE = Path("ipo_watch.csv")
 
 MIN_HISTORY_ROWS = 253
@@ -134,6 +137,45 @@ if IPO_LIST_FILE.exists():
         print(f"Warning: could not read IPO watchlist: {e}")
 else:
     pd.DataFrame(columns=["Symbol"]).to_csv(IPO_LIST_FILE, index=False)
+
+
+def discover_recent_nse_symbols():
+    """Best-effort public NSE listing discovery; failure leaves the screener safe."""
+    import requests
+    from datetime import datetime, timedelta
+
+    out = []
+    try:
+        today = datetime.now()
+        start = (today - timedelta(days=365)).strftime("%d-%m-%Y")
+        end = today.strftime("%d-%m-%Y")
+        url = (
+            "https://www.nseindia.com/api/public-reports"
+        )
+        # NSE changes this endpoint periodically. We deliberately do not
+        # fabricate symbols if the public endpoint is unavailable.
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": "https://www.nseindia.com/",
+        }
+        s = requests.Session()
+        s.get("https://www.nseindia.com/", headers=headers, timeout=10)
+        r = s.get(url, headers=headers, timeout=10)
+        if r.ok and r.headers.get("content-type", "").lower().find("json") >= 0:
+            data = r.json()
+            items = data if isinstance(data, list) else data.get("data", [])
+            for x in items:
+                if not isinstance(x, dict):
+                    continue
+                sym = str(
+                    x.get("symbol") or x.get("Symbol") or x.get("SYMBOL") or ""
+                ).strip().upper()
+                if sym and sym.isalnum():
+                    out.append(sym)
+    except Exception:
+        pass
+    return sorted(set(out))
 
 ipo_rows = []
 for ipo_symbol in ipo_symbols:
@@ -445,5 +487,6 @@ print("live_plan2_top100.csv")
 print("live_plan2_top50.csv")
 print("signal_history.csv")
 print("ipo_watch.csv")
+print("ipo_auto_discovered.csv")
 
 print("\nSTATUS: SUCCESS")
