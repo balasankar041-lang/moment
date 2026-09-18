@@ -35,7 +35,6 @@ HISTORY_FILE = Path("signal_history.csv")
 IPO_LIST_FILE = Path("ipo_watchlist.csv")
 IPO_WATCH_FILE = Path("ipo_watch.csv")
 
-# Data safety gates
 MIN_HISTORY_ROWS = 253
 MIN_PATH_ROWS = 100
 MAX_MISSING_VALID_RATIO = 0.20
@@ -53,7 +52,7 @@ for number, symbol in enumerate(stocks, start=1):
             continue
 
         close = data["Close"].squeeze().dropna()
-        if len(close) < 253:
+        if len(close) < MIN_HISTORY_ROWS:
             continue
 
         start_cut = close.index[-1] - pd.DateOffset(months=12)
@@ -74,7 +73,7 @@ for number, symbol in enumerate(stocks, start=1):
             (close.index >= a.index[-1]) &
             (close.index <= b.index[-1])
         ]
-        if len(path) < 100:
+        if len(path) < MIN_PATH_ROWS:
             continue
 
         daily = path.pct_change().dropna()
@@ -107,6 +106,14 @@ df = pd.DataFrame(results)
 if df.empty:
     raise RuntimeError("No stocks produced valid results.")
 
+valid_ratio = len(df) / len(stocks)
+print(f"Valid-data coverage: {valid_ratio:.1%}")
+if valid_ratio < (1.0 - MAX_MISSING_VALID_RATIO):
+    raise RuntimeError(
+        f"DATA SAFETY STOP: valid coverage {valid_ratio:.1%} is below 80%. "
+        "No BUY/SELL signals are saved."
+    )
+
 print("\nPRICE / SIGNAL DATA")
 print("===================")
 print(f"Valid stocks: {len(df)}")
@@ -114,9 +121,6 @@ print(f"Valid stocks: {len(df)}")
 # ---------------------------------------------------------
 # IPO / RECENT LISTING WATCH
 # ---------------------------------------------------------
-# Symbols must be supplied in ipo_watchlist.csv with a Symbol column.
-# IPOs are tracked separately and are not forced into Plan 2 before
-# enough history exists.
 ipo_symbols = []
 if IPO_LIST_FILE.exists():
     try:
@@ -124,7 +128,7 @@ if IPO_LIST_FILE.exists():
         if "Symbol" in ipo_input.columns:
             ipo_symbols = (
                 ipo_input["Symbol"].dropna().astype(str).str.strip().str.upper()
-                .str.replace(r"\\.NS$", "", regex=True).unique().tolist()
+                .str.replace(r"\.NS$", "", regex=True).unique().tolist()
             )
     except Exception as e:
         print(f"Warning: could not read IPO watchlist: {e}")
@@ -140,8 +144,10 @@ for ipo_symbol in ipo_symbols:
         )
         if ipo_data.empty:
             ipo_rows.append({
-                "Symbol": ipo_symbol, "Status": "IPO WATCH - NO DATA",
-                "Live Price": np.nan, "Trading Days": 0,
+                "Symbol": ipo_symbol,
+                "Status": "IPO WATCH - NO DATA",
+                "Live Price": np.nan,
+                "Trading Days": 0,
                 "Plan 2 Eligible": "NO"
             })
             continue
@@ -167,8 +173,10 @@ for ipo_symbol in ipo_symbols:
         })
     except Exception:
         ipo_rows.append({
-            "Symbol": ipo_symbol, "Status": "IPO WATCH - DATA ERROR",
-            "Live Price": np.nan, "Trading Days": 0,
+            "Symbol": ipo_symbol,
+            "Status": "IPO WATCH - DATA ERROR",
+            "Live Price": np.nan,
+            "Trading Days": 0,
             "Plan 2 Eligible": "NO"
         })
 
@@ -279,7 +287,8 @@ if previous_top50:
             if s in current_top100
             else "SELL: dropped out of Top 100"
         )
-        old_rows["Exit Safety"] = "Validated current data; no forced sell on missing data"\n        old_rows["Data Safety"] = "VALID"
+        old_rows["Exit Safety"] = "Validated current data; no forced sell on missing data"
+        old_rows["Data Safety"] = "VALID"
 
         sell_columns = [
             "Momentum Rank", "ID Rank", "Stock", "Live Price",
@@ -320,6 +329,7 @@ columns = [
     "Portfolio Signal",
     "Sell Reason",
     "Exit Safety",
+    "Data Safety",
     "Weight %"
 ]
 
@@ -335,7 +345,10 @@ for column in columns:
     if column not in top50.columns:
         top50[column] = np.nan
 
-top100["Data Safety"] = "VALID"\ntop50["Data Safety"] = "VALID"\n\n# Keep Top-100 reporting signals explicit.
+top100["Data Safety"] = "VALID"
+top50["Data Safety"] = "VALID"
+
+# Keep Top-100 reporting signals explicit.
 # Top-50 members are BUY/HOLD; remaining Top-100 members are ID FILTER.
 top100["Portfolio Signal"] = top100["Stock"].map(
     lambda s: ("HOLD" if s in previous_top50 else "BUY")
@@ -430,6 +443,7 @@ print("ranking.csv")
 print("live_plan2_ranking.csv")
 print("live_plan2_top100.csv")
 print("live_plan2_top50.csv")
-print("signal_history.csv")\nprint("ipo_watch.csv")
+print("signal_history.csv")
+print("ipo_watch.csv")
 
 print("\nSTATUS: SUCCESS")
