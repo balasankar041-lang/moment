@@ -4,123 +4,74 @@ import yfinance as yf
 import requests
 from io import BytesIO
 import warnings
+from pathlib import Path
+from datetime import datetime, timezone
 
 warnings.filterwarnings("ignore")
 
 print("NIFTY 500 PLAN 2 LIVE SCREENER")
 print("==============================")
 
-# =========================================================
-# NIFTY 500 UNIVERSE
-# =========================================================
-
 URL = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 response = requests.get(URL, headers=HEADERS, timeout=30)
 response.raise_for_status()
-
 universe = pd.read_csv(BytesIO(response.content))
 
 if "Symbol" not in universe.columns:
-    raise ValueError(
-        f"Unexpected Nifty file columns: {list(universe.columns)}"
-    )
+    raise ValueError(f"Unexpected Nifty file columns: {list(universe.columns)}")
 
 stocks = (
-    universe["Symbol"]
-    .dropna()
-    .astype(str)
-    .str.strip()
-    .str.upper()
-    .unique()
+    universe["Symbol"].dropna().astype(str).str.strip().str.upper().unique()
 )
-
 stocks = [symbol + ".NS" for symbol in stocks]
 
 print(f"Nifty 500 universe loaded: {len(stocks)} stocks")
 
-# =========================================================
-# VALIDATED PLAN 2
-# =========================================================
-# 1. 12-2 month momentum
-# 2. Top 100 momentum stocks
-# 3. Lowest ID from Top 100
-# 4. Final Top 50
-# 5. Equal weight
-# =========================================================
-
 TOP_MOMENTUM = 100
 PORTFOLIO_SIZE = 50
+HISTORY_FILE = Path("signal_history.csv")
 
 results = []
 
-# =========================================================
-# DOWNLOAD + CALCULATE
-# =========================================================
-
 for number, symbol in enumerate(stocks, start=1):
-
     print(f"[{number}/{len(stocks)}] {symbol}")
-
     try:
-
         data = yf.download(
-            symbol,
-            period="2y",
-            auto_adjust=True,
-            progress=False,
-            threads=False
+            symbol, period="2y", auto_adjust=True,
+            progress=False, threads=False
         )
-
         if data.empty:
             continue
 
         close = data["Close"].squeeze().dropna()
-
         if len(close) < 253:
             continue
-
-        # -------------------------------------------------
-        # 12-2 MONTH MOMENTUM
-        # Same definition as validated backtest
-        # -------------------------------------------------
 
         start_cut = close.index[-1] - pd.DateOffset(months=12)
         end_cut = close.index[-1] - pd.DateOffset(months=2)
 
         a = close.loc[close.index <= start_cut]
         b = close.loc[close.index <= end_cut]
-
         if a.empty or b.empty:
             continue
 
-        p0 = a.iloc[-1]
-        p1 = b.iloc[-1]
-
+        p0, p1 = a.iloc[-1], b.iloc[-1]
         if p0 <= 0 or p1 <= 0:
             continue
 
         momentum = p1 / p0 - 1
 
-        # -------------------------------------------------
-        # ID
-        # Exact formula from validated backtest
-        # -------------------------------------------------
-
         path = close.loc[
-            (close.index >= a.index[-1])
-            & (close.index <= b.index[-1])
+            (close.index >= a.index[-1]) &
+            (close.index <= b.index[-1])
         ]
-
         if len(path) < 100:
             continue
 
         daily = path.pct_change().dropna()
-
-        # Zero-return days excluded
         daily = daily[daily != 0]
-
         if daily.empty:
             continue
 
@@ -142,12 +93,7 @@ for number, symbol in enumerate(stocks, start=1):
         })
 
     except Exception as e:
-
         print(f"Skipped {symbol}: {e}")
-
-# =========================================================
-# VALID RESULTS
-# =========================================================
 
 df = pd.DataFrame(results)
 
@@ -158,89 +104,122 @@ print("\nPRICE / SIGNAL DATA")
 print("===================")
 print(f"Valid stocks: {len(df)}")
 
-# =========================================================
-# STAGE 1
-# TOP 100 MOMENTUM
-# =========================================================
-
-df = (
-    df.sort_values(
-        "Momentum 12-2",
-        ascending=False
-    )
-    .reset_index(drop=True)
-)
-
+# Stage 1: Top 100 momentum
+df = df.sort_values("Momentum 12-2", ascending=False).reset_index(drop=True)
 df["Momentum Rank"] = df.index + 1
-
 top100 = df.head(TOP_MOMENTUM).copy()
 
-# =========================================================
-# STAGE 2
-# LOWEST ID
-# =========================================================
-
-top100 = (
-    top100.sort_values(
-        "ID",
-        ascending=True
-    )
-    .reset_index(drop=True)
-)
-
+# Stage 2: Lowest ID
+top100 = top100.sort_values("ID", ascending=True).reset_index(drop=True)
 top100["ID Rank"] = top100.index + 1
 
-# =========================================================
-# FINAL TOP 50
-# =========================================================
-
+# Final Top 50
 top50 = top100.head(PORTFOLIO_SIZE).copy()
-
 if len(top50) < PORTFOLIO_SIZE:
     raise RuntimeError(
-        f"Only {len(top50)} final stocks available; "
-        f"need {PORTFOLIO_SIZE}."
+        f"Only {len(top50)} final stocks available; need {PORTFOLIO_SIZE}."
     )
 
-top50["Signal"] = "BUY"
-top50["Weight %"] = 100.0 / len(top50)
+current_top50 = set(top50["Stock"])
+current_top100 = set(top100["Stock"])
 
-# =========================================================
-# FULL UNIVERSE SIGNALS
-# =========================================================
+# ---------------------------------------------------------
+# PREVIOUS SIGNAL STATE
+# ---------------------------------------------------------
+# signal_history.csv is committed by GitHub Actions after each run.
+# The latest saved snapshot is used to distinguish BUY/HOLD/SELL.
+if HISTORY_FILE.exists():
+    try:
+        history = pd.read_csv(HISTORY_FILE)
+        if not history.empty and "Run Date" in history.columns:
+            latest_date = history["Run Date"].max()
+            previous = history[history["Run Date"] == latest_date].copy()
+        else:
+            previous = pd.DataFrame()
+    except Exception as e:
+        print(f"Warning: could not read signal history: {e}")
+        previous = pd.DataFrame()
+else:
+    previous = pd.DataFrame()
 
-top100_symbols = set(top100["Stock"])
-selected_symbols = set(top50["Stock"])
+previous_top50 = set()
+if not previous.empty and "Portfolio Signal" in previous.columns:
+    previous_top50 = set(
+        previous.loc[
+            previous["Portfolio Signal"].isin(["BUY", "HOLD"]),
+            "Stock"
+        ].astype(str)
+    )
 
-df["Signal"] = "WAIT"
-df["Weight %"] = 0.0
+# ---------------------------------------------------------
+# SIGNALS
+# ---------------------------------------------------------
+# BUY  = new entry into current Top 50
+# HOLD = was in previous Top 50 and remains in current Top 50
+# SELL = was in previous Top 50 but left current Top 50
+# WAIT = not Top 50; stocks inside Top 100 receive ID FILTER
+df["Portfolio Signal"] = "WAIT"
 
-# ID Rank exists for all rows.
-# Only Top 100 receive an actual rank.
-id_rank_map = top100.set_index("Stock")["ID Rank"]
-df["ID Rank"] = df["Stock"].map(id_rank_map)
-
-# Top 100 but not final Top 50
 df.loc[
-    df["Stock"].isin(top100_symbols),
-    "Signal"
+    df["Stock"].isin(current_top100),
+    "Portfolio Signal"
 ] = "ID FILTER"
 
-# Final Top 50
 df.loc[
-    df["Stock"].isin(selected_symbols),
-    "Signal"
-] = "BUY"
+    df["Stock"].isin(current_top50 & previous_top50),
+    "Portfolio Signal"
+] = "HOLD"
 
 df.loc[
-    df["Stock"].isin(selected_symbols),
+    df["Stock"].isin(current_top50 - previous_top50),
+    "Portfolio Signal"
+] = "BUY"
+
+# SELL rows are retained from the previous Top 50 even though they are
+# no longer in the current Nifty ranking output.
+if previous_top50:
+    missing_sells = previous_top50 - current_top50
+    if missing_sells:
+        old_rows = previous[
+            previous["Stock"].isin(missing_sells)
+        ].copy()
+
+        old_rows["Portfolio Signal"] = "SELL"
+        old_rows["Signal Date"] = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%d"
+        )
+
+        # Current price is not available from the old snapshot reliably,
+        # so use today's price if present in the current universe.
+        price_map = df.set_index("Stock")["Live Price"].to_dict()
+        old_rows["Live Price"] = old_rows["Stock"].map(price_map).fillna(
+            old_rows.get("Live Price", np.nan)
+        )
+
+        sell_columns = [
+            "Momentum Rank", "ID Rank", "Stock", "Live Price",
+            "Momentum 12-2", "Positive Days %", "Negative Days %",
+            "ID", "Portfolio Signal", "Weight %"
+        ]
+        for col in sell_columns:
+            if col not in old_rows.columns:
+                old_rows[col] = np.nan
+
+        df = pd.concat(
+            [df, old_rows[sell_columns]],
+            ignore_index=True
+        )
+
+# Current weights
+df["Weight %"] = 0.0
+df.loc[
+    df["Stock"].isin(current_top50),
     "Weight %"
 ] = 100.0 / len(top50)
 
-# =========================================================
+# ---------------------------------------------------------
 # OUTPUT COLUMNS
-# =========================================================
-
+# ---------------------------------------------------------
 columns = [
     "Momentum Rank",
     "ID Rank",
@@ -250,11 +229,10 @@ columns = [
     "Positive Days %",
     "Negative Days %",
     "ID",
-    "Signal",
+    "Portfolio Signal",
     "Weight %"
 ]
 
-# Ensure all output columns exist
 for column in columns:
     if column not in df.columns:
         df[column] = np.nan
@@ -267,74 +245,86 @@ for column in columns:
     if column not in top50.columns:
         top50[column] = np.nan
 
-# =========================================================
-# SAVE CSV FILES
-# =========================================================
+# ---------------------------------------------------------
+# SAVE CURRENT RESULTS
+# ---------------------------------------------------------
+df[columns].to_csv("live_plan2_ranking.csv", index=False)
+top100[columns].to_csv("live_plan2_top100.csv", index=False)
 
-df[columns].to_csv(
-    "live_plan2_ranking.csv",
-    index=False
+top50_output = top50[columns].copy()
+top50_output["Portfolio Signal"] = top50_output["Stock"].map(
+    lambda s: "HOLD" if s in previous_top50 else "BUY"
+)
+top50_output["Weight %"] = 100.0 / len(top50)
+top50_output.to_csv("live_plan2_top50.csv", index=False)
+
+# Keep compatibility with existing workflow/artifacts.
+df[columns].to_csv("ranking.csv", index=False)
+
+# ---------------------------------------------------------
+# APPEND SNAPSHOT TO HISTORY
+# ---------------------------------------------------------
+run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+snapshot = top50_output.copy()
+snapshot.insert(0, "Run Date", run_date)
+
+# Avoid duplicate snapshot if the same day is manually rerun.
+if HISTORY_FILE.exists():
+    try:
+        old_history = pd.read_csv(HISTORY_FILE)
+        old_history = old_history[
+            old_history["Run Date"].astype(str) != run_date
+        ]
+    except Exception:
+        old_history = pd.DataFrame()
+else:
+    old_history = pd.DataFrame()
+
+new_history = pd.concat(
+    [old_history, snapshot],
+    ignore_index=True
 )
 
-top100[columns].to_csv(
-    "live_plan2_top100.csv",
-    index=False
-)
+new_history.to_csv(HISTORY_FILE, index=False)
 
-top50[columns].to_csv(
-    "live_plan2_top50.csv",
-    index=False
-)
-
-# Keep the original ranking.csv output too,
-# so existing workflow/artifacts do not break.
-df[columns].to_csv(
-    "ranking.csv",
-    index=False
-)
-
-# =========================================================
-# DISPLAY FINAL RESULT
-# =========================================================
-
+# ---------------------------------------------------------
+# DISPLAY
+# ---------------------------------------------------------
 print("\n==========================================")
 print("PLAN 2 LIVE RESULT")
 print("==========================================")
-
 print(f"Universe: {len(stocks)}")
-print(f"Valid stocks: {len(df)}")
+print(f"Valid stocks: {len(results)}")
 print(f"Top momentum: {TOP_MOMENTUM}")
 print(f"Final portfolio: {len(top50)}")
+print(f"Previous Top 50: {len(previous_top50)}")
+print(f"BUY: {sum(top50_output['Portfolio Signal'] == 'BUY')}")
+print(f"HOLD: {sum(top50_output['Portfolio Signal'] == 'HOLD')}")
+print(f"SELL: {sum(df['Portfolio Signal'] == 'SELL')}")
 
-print("\nTOP 50 PLAN 2")
-print("------------------------------------------")
-
-display_df = top50[columns].copy()
-
+display_df = top50_output.copy()
 display_df["Live Price"] = display_df["Live Price"].map(
     lambda x: f"{x:.2f}"
 )
-
 display_df["Momentum 12-2"] = display_df["Momentum 12-2"].map(
     lambda x: f"{x:.2%}"
 )
-
 display_df["Positive Days %"] = display_df["Positive Days %"].map(
     lambda x: f"{x:.2%}"
 )
-
 display_df["Negative Days %"] = display_df["Negative Days %"].map(
     lambda x: f"{x:.2%}"
 )
-
 display_df["ID"] = display_df["ID"].map(
     lambda x: f"{x:.4f}"
 )
-
 display_df["Weight %"] = display_df["Weight %"].map(
     lambda x: f"{x:.2f}%"
 )
 
+print("\nTOP 50 PLAN 2")
+print("------------------------------------------")
 print(display_df.to_string(index=False))
 
 print("\nFiles saved:")
@@ -342,5 +332,6 @@ print("ranking.csv")
 print("live_plan2_ranking.csv")
 print("live_plan2_top100.csv")
 print("live_plan2_top50.csv")
+print("signal_history.csv")
 
 print("\nSTATUS: SUCCESS")
