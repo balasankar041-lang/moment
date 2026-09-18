@@ -11,6 +11,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,7 +22,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Restore price cache
         uses: actions/cache@v4
@@ -43,34 +46,23 @@ jobs:
           git config user.email "41898282+github-actions[bot]@github.com"
           git add signal_history.csv ipo_watchlist.csv 2>/dev/null || true
           if [ -f ipo_auto_discovered.csv ]; then git add ipo_auto_discovered.csv; fi
-          git diff --cached --quiet || git commit -m "Update Plan 2 signals and IPO watch"
-          git push
+          if git diff --cached --quiet; then
+            echo "No history changes to commit."
+          else
+            git commit -m "Update Plan 2 signals and IPO watch"
+            git push
+          fi
 
-      - name: Run ₹20,000 capital execution test
-        run: python capital_execution_test.py
-
-      - name: Upload live and capital results
-        uses: actions/upload-artifact@v4
-        with:
-          name: plan2-capital-results-${{ github.run_id }}
-          path: |
-            ranking.csv
-            live_plan2_ranking.csv
-            live_plan2_top100.csv
-            live_plan2_top50.csv
-            ipo_watch.csv
-            ipo_auto_discovered.csv
-            capital_execution_test.csv
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Backtest
+      - name: Run Plan 2 historical backtest
         run: python backtest_id.py
 
-      - name: Walk forward
+      - name: Run ₹20,000 capital sizing backtest
+        run: python capital_sizing_backtest_final.py
+
+      - name: Walk-forward validation
         run: python walk_forward.py
 
-      - name: Bear market test
+      - name: Bear-market test
         run: python bear_market_test.py
 
       - name: Liquidity test
@@ -82,5 +74,36 @@ jobs:
       - name: Concentration drawdown test
         run: python concentration_drawdown_test.py
 
+      - name: Verify outputs
+        run: |
+          test -f ranking.csv
+          test -f live_plan2_ranking.csv
+          test -f live_plan2_top100.csv
+          test -f live_plan2_top50.csv
+          test -f ipo_watch.csv
+          test -f id_strategy_selections.csv
+          test -f capital_sizing_backtest.csv
+          test -f capital_sizing_monthly.csv
+          echo "All required outputs are present."
+
+      - name: Upload complete results
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan2-capital-results-${{ github.run_id }}
+          path: |
+            ranking.csv
+            live_plan2_ranking.csv
+            live_plan2_top100.csv
+            live_plan2_top50.csv
+            signal_history.csv
+            ipo_watch.csv
+            ipo_watchlist.csv
+            ipo_auto_discovered.csv
+            id_strategy_selections.csv
+            capital_sizing_backtest.csv
+            capital_sizing_monthly.csv
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Complete
-        run: echo "Plan 2 + capital execution test completed"
+        run: echo "PLAN 2 FULL RUN + ₹20,000 CAPITAL SIZING TEST COMPLETED"
