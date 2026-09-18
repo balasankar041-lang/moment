@@ -46,10 +46,13 @@ jobs:
           git diff --cached --quiet || git commit -m "Update Plan 2 signals and IPO watch"
           git push
 
-      - name: Upload Plan 2 results
+      - name: Run ₹20,000 capital execution test
+        run: python capital_execution_test.py
+
+      - name: Upload live and capital results
         uses: actions/upload-artifact@v4
         with:
-          name: plan2-live-results-${{ github.run_id }}
+          name: plan2-capital-results-${{ github.run_id }}
           path: |
             ranking.csv
             live_plan2_ranking.csv
@@ -57,6 +60,7 @@ jobs:
             live_plan2_top50.csv
             ipo_watch.csv
             ipo_auto_discovered.csv
+            capital_execution_test.csv
           if-no-files-found: error
           retention-days: 30
 
@@ -79,4 +83,4 @@ jobs:
         run: python concentration_drawdown_test.py
 
       - name: Complete
-        run: echo "Plan 2 screener completed"
+        run: echo "Plan 2 + capital execution test completed"
