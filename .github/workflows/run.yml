@@ -59,6 +59,7 @@ jobs:
             live_plan2_ranking.csv
             live_plan2_top100.csv
             live_plan2_top50.csv
+            ipo_watch.csv
           if-no-files-found: error
           retention-days: 30
 
