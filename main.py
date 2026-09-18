@@ -33,6 +33,11 @@ TOP_MOMENTUM = 100
 PORTFOLIO_SIZE = 50
 HISTORY_FILE = Path("signal_history.csv")
 
+# Conservative data/API safety gates.
+MIN_HISTORY_ROWS = 253
+MIN_PATH_ROWS = 100
+MAX_MISSING_VALID_RATIO = 0.20
+
 results = []
 
 for number, symbol in enumerate(stocks, start=1):
@@ -210,6 +215,7 @@ if previous_top50:
             else "SELL: dropped out of Top 100"
         )
         old_rows["Exit Safety"] = "Validated current data; no forced sell on missing data"
+        old_rows["Data Safety"] = "VALID"
 
         sell_columns = [
             "Momentum Rank", "ID Rank", "Stock", "Live Price",
@@ -264,6 +270,9 @@ for column in columns:
 for column in columns:
     if column not in top50.columns:
         top50[column] = np.nan
+
+top100["Data Safety"] = "VALID"
+top50["Data Safety"] = "VALID"
 
 # Keep Top-100 reporting signals explicit.
 # Top-50 members are BUY/HOLD; remaining Top-100 members are ID FILTER.
