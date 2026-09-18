@@ -44,8 +44,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@github.com"
+
           git add signal_history.csv ipo_watchlist.csv 2>/dev/null || true
-          if [ -f ipo_auto_discovered.csv ]; then git add ipo_auto_discovered.csv; fi
+
+          if [ -f ipo_auto_discovered.csv ]; then
+            git add ipo_auto_discovered.csv
+          fi
+
           if git diff --cached --quiet; then
             echo "No history changes to commit."
           else
@@ -90,15 +95,6 @@ jobs:
           name: plan2-capital-results-${{ github.run_id }}
           path: |
             *.csv
-            ranking.csv
-            live_plan2_ranking.csv
-            live_plan2_top100.csv
-            live_plan2_top50.csv
-            signal_history.csv
-            ipo_watch.csv
-            ipo_watchlist.csv
-            ipo_auto_discovered.csv
-            capital_execution_test.csv
           if-no-files-found: warn
           retention-days: 30
 
