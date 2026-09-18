@@ -159,7 +159,6 @@ if not previous.empty and "Portfolio Signal" in previous.columns:
 # SELL = was in previous Top 50 but left current Top 50
 # WAIT = not Top 50; stocks inside Top 100 receive ID FILTER
 df["Portfolio Signal"] = "WAIT"
-df["Buy Reason"] = ""
 df["Sell Reason"] = ""
 
 df.loc[
@@ -222,17 +221,6 @@ if previous_top50:
             ignore_index=True
         )
 
-# BUY rule:
-# A BUY is generated only for a newly selected Top-50 stock.
-# The stock must already pass the existing Plan 2 data-quality checks,
-# Top-100 momentum filter, and Top-50 lowest-ID selection.
-# No extra RSI/trend/ATR filter is added here, so the tested Plan 2
-# selection logic remains unchanged.
-df.loc[
-    df["Stock"].isin(current_top50 - previous_top50),
-    "Buy Reason"
-] = "New entry into Plan 2 Top 50"
-
 # Current weights
 df["Weight %"] = 0.0
 df.loc[
@@ -256,7 +244,6 @@ columns = [
     "Negative Days %",
     "ID",
     "Portfolio Signal",
-    "Buy Reason",
     "Sell Reason",
     "Weight %"
 ]
@@ -272,6 +259,13 @@ for column in columns:
 for column in columns:
     if column not in top50.columns:
         top50[column] = np.nan
+
+# Keep Top-100 reporting signals explicit.
+# Top-50 members are BUY/HOLD; remaining Top-100 members are ID FILTER.
+top100["Portfolio Signal"] = top100["Stock"].map(
+    lambda s: ("HOLD" if s in previous_top50 else "BUY")
+    if s in current_top50 else "ID FILTER"
+)
 
 # ---------------------------------------------------------
 # SAVE CURRENT RESULTS
@@ -295,7 +289,6 @@ df[columns].to_csv("ranking.csv", index=False)
 run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 snapshot = top50_output.copy()
-
 snapshot.insert(0, "Run Date", run_date)
 
 # Avoid duplicate snapshot if the same day is manually rerun.
@@ -331,7 +324,6 @@ print(f"Previous Top 50: {len(previous_top50)}")
 print(f"BUY: {sum(top50_output['Portfolio Signal'] == 'BUY')}")
 print(f"HOLD: {sum(top50_output['Portfolio Signal'] == 'HOLD')}")
 print(f"SELL: {sum(df['Portfolio Signal'] == 'SELL')}")
-print(f"BUY: new Top 50 entries only; {sum(top50_output['Portfolio Signal'] == 'BUY')} eligible")
 
 display_df = top50_output.copy()
 display_df["Live Price"] = display_df["Live Price"].map(
