@@ -1,10 +1,10 @@
-import math
-from pathlib import Path
 import pandas as pd
+from pathlib import Path
+import math
 
 CAPITAL = 20_000.0
+MAX_PER_STOCK = 1_500.0
 MIN_STOCKS = 10
-MAX_STOCKS = 50
 
 INPUT_FILE = Path("live_plan2_top50.csv")
 OUTPUT_FILE = Path("capital_execution_test.csv")
@@ -12,207 +12,121 @@ ALLOCATION_FILE = Path("capital_auto_allocation.csv")
 
 
 def find_column(df, names):
-    lookup = {str(c).strip().lower(): c for c in df.columns}
-
     for name in names:
-        if name.lower() in lookup:
-            return lookup[name.lower()]
-
+        if name in df.columns:
+            return name
     return None
 
 
 def main():
-
     if not INPUT_FILE.exists():
-        raise FileNotFoundError(
-            f"Missing file: {INPUT_FILE}"
-        )
+        raise FileNotFoundError(f"{INPUT_FILE} not found")
 
     df = pd.read_csv(INPUT_FILE)
 
-    stock_col = find_column(
-        df,
-        ["Stock", "Symbol", "Ticker"]
-    )
-
-    price_col = find_column(
-        df,
-        ["Live Price", "Price", "Current Price"]
-    )
+    stock_col = find_column(df, ["Stock", "Symbol", "Ticker"])
+    price_col = find_column(df, ["Live Price", "Price", "Close"])
 
     if stock_col is None or price_col is None:
         raise ValueError(
-            "live_plan2_top50.csv must contain "
-            "Stock and Live Price columns. "
-            f"Found columns: {list(df.columns)}"
+            f"Required columns not found. Available columns: {list(df.columns)}"
         )
 
     work = df[[stock_col, price_col]].copy()
+    work.columns = ["Stock", "Live Price"]
 
-    work.columns = [
-        "Stock",
-        "Live Price"
-    ]
+    work["Live Price"] = pd.to_numeric(work["Live Price"], errors="coerce")
+    work = work.dropna(subset=["Stock", "Live Price"])
+    work = work[work["Live Price"] > 0].copy()
 
-    work["Live Price"] = pd.to_numeric(
-        work["Live Price"],
-        errors="coerce"
-    )
+    # Keep the existing Plan 2 Top-50 order.
+    # Only stocks priced at or below ₹1,500 are eligible.
+    eligible = work[work["Live Price"] <= MAX_PER_STOCK].copy()
 
-    work = work.dropna(
-        subset=["Stock", "Live Price"]
-    )
-
-    work = work[
-        work["Live Price"] > 0
-    ].copy()
-
-    work["Stock"] = (
-        work["Stock"]
-        .astype(str)
-        .str.strip()
-    )
-
-    work = work.drop_duplicates(
-        "Stock"
-    ).reset_index(drop=True)
-
-    if len(work) < MIN_STOCKS:
-        raise ValueError(
-            f"Only {len(work)} valid stocks available. "
-            f"At least {MIN_STOCKS} are required."
-        )
-
-    # Find the largest feasible stock count
-    # between 50 and 10.
-    chosen_n = None
-    selected = None
-
+    # ₹20,000 / ₹1,500 = maximum 13 stocks.
     max_possible = min(
-        MAX_STOCKS,
-        len(work)
+        len(eligible),
+        math.floor(CAPITAL / MAX_PER_STOCK)
     )
 
-    for n in range(
-        max_possible,
-        MIN_STOCKS - 1,
-        -1
-    ):
+    target_count = max_possible
 
-        target_per_stock = CAPITAL / n
+    if target_count < MIN_STOCKS:
+        target_count = min(len(eligible), MIN_STOCKS)
 
-        candidates = work[
-            work["Live Price"]
-            <= target_per_stock
-        ].head(n).copy()
+    selected = eligible.head(target_count).copy()
 
-        if len(candidates) == n:
-            chosen_n = n
-            selected = candidates
-            break
-
-    # Safety fallback
-    if selected is None:
-
-        chosen_n = MIN_STOCKS
-
-        selected = (
-            work
-            .sort_values("Live Price")
-            .head(MIN_STOCKS)
-            .copy()
-        )
-
-    target_per_stock = CAPITAL / chosen_n
-
-    selected["Target Amount"] = (
-        target_per_stock
-    )
-
+    # Whole shares only.
+    selected["Target Amount"] = MAX_PER_STOCK
     selected["Shares"] = (
-        selected["Target Amount"]
-        / selected["Live Price"]
-    ).apply(math.floor).astype(int)
+        selected["Target Amount"] / selected["Live Price"]
+    ).apply(math.floor)
 
-    selected["Invested"] = (
-        selected["Shares"]
-        * selected["Live Price"]
+    selected = selected[selected["Shares"] >= 1].copy()
+
+    selected["Invested Amount"] = (
+        selected["Shares"] * selected["Live Price"]
     )
 
-    selected = selected[
-        selected["Shares"] > 0
-    ].copy()
+    # Hard capital safety check.
+    while (
+        selected["Invested Amount"].sum() > CAPITAL
+        and len(selected) > MIN_STOCKS
+    ):
+        selected = selected.iloc[:-1].copy()
 
-    actual_count = len(selected)
-
-    invested = float(
-        selected["Invested"].sum()
-    )
-
+    invested = float(selected["Invested Amount"].sum())
     cash = CAPITAL - invested
 
-    selected["Weight % of Capital"] = (
-        selected["Invested"]
-        / CAPITAL
-        * 100
+    selected["Weight %"] = (
+        selected["Invested Amount"] / CAPITAL * 100
     )
+
+    status = "PASS"
+
+    if invested > CAPITAL + 1e-9:
+        status = "FAIL: capital exceeded"
+    elif len(selected) < MIN_STOCKS:
+        status = f"CAUTION: only {len(selected)} executable stocks"
+
+    allocation = selected[
+        [
+            "Stock",
+            "Live Price",
+            "Target Amount",
+            "Shares",
+            "Invested Amount",
+            "Weight %",
+        ]
+    ].copy()
+
+    allocation.to_csv(ALLOCATION_FILE, index=False)
 
     summary = pd.DataFrame([{
-
         "Capital": CAPITAL,
-
-        "Target Stock Count":
-            chosen_n,
-
-        "Executable Stock Count":
-            actual_count,
-
-        "Invested":
-            round(invested, 2),
-
-        "Cash Remaining":
-            round(cash, 2),
-
-        "Min Stocks":
-            MIN_STOCKS,
-
-        "Max Stocks":
-            MAX_STOCKS,
-
-        "Status":
-            "PASS"
-            if actual_count >= MIN_STOCKS
-            else "REVIEW"
-
+        "Max Per Stock": MAX_PER_STOCK,
+        "Minimum Stocks": MIN_STOCKS,
+        "Target Stock Count": target_count,
+        "Executable Stock Count": len(selected),
+        "Invested": round(invested, 2),
+        "Cash Remaining": round(cash, 2),
+        "Status": status,
     }])
 
-    summary.to_csv(
-        OUTPUT_FILE,
-        index=False
-    )
+    summary.to_csv(OUTPUT_FILE, index=False)
 
-    selected.to_csv(
-        ALLOCATION_FILE,
-        index=False
-    )
+    print("=== ₹20,000 CAPITAL EXECUTION TEST ===")
+    print(f"Max per stock: ₹{MAX_PER_STOCK:,.0f}")
+    print(f"Minimum stocks: {MIN_STOCKS}")
+    print(f"Target stock count: {target_count}")
+    print(f"Executable stock count: {len(selected)}")
+    print(f"Invested: ₹{invested:,.2f}")
+    print(f"Cash remaining: ₹{cash:,.2f}")
+    print(f"Status: {status}")
 
-    print(
-        "Capital execution test completed."
-    )
-
-    print(
-        summary.to_string(
-            index=False
-        )
-    )
-
-    print(
-        f"Saved: {OUTPUT_FILE}"
-    )
-
-    print(
-        f"Saved: {ALLOCATION_FILE}"
-    )
+    print()
+    print("=== AUTOMATIC ALLOCATION ===")
+    print(allocation.to_string(index=False))
 
 
 if __name__ == "__main__":
