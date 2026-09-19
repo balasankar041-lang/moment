@@ -1,0 +1,289 @@
+from pathlib import Path
+import pandas as pd
+
+INPUT_FILE = Path("live_plan2_top50.csv")
+OUTPUT_FILE = Path("sector_wise_top50.csv")
+
+# Sector mapping for the stocks appearing in Plan 2 Top 50.
+# Unknown stocks are kept as "Other" so no stock is lost.
+SECTOR_MAP = {
+    # Financials
+    "FEDERALBNK": "Financials",
+    "SHRIRAMFIN": "Financials",
+    "BANKINDIA": "Financials",
+    "INDUSINDBK": "Financials",
+    "SBIN": "Financials",
+    "UNIONBANK": "Financials",
+    "HDFCBANK": "Financials",
+    "ICICIBANK": "Financials",
+    "AXISBANK": "Financials",
+    "KOTAKBANK": "Financials",
+    "PNB": "Financials",
+    "CANBK": "Financials",
+    "BANKBARODA": "Financials",
+    "IDFCFIRSTB": "Financials",
+    "AUBANK": "Financials",
+    "MUTHOOTFIN": "Financials",
+    "MANAPPURAM": "Financials",
+    "CHOLAFIN": "Financials",
+    "BAJFINANCE": "Financials",
+    "BAJAJFINSV": "Financials",
+
+    # Metals & Mining
+    "NATIONALUM": "Metals & Mining",
+    "HINDALCO": "Metals & Mining",
+    "TATASTEEL": "Metals & Mining",
+    "JSWSTEEL": "Metals & Mining",
+    "VEDL": "Metals & Mining",
+    "HINDZINC": "Metals & Mining",
+    "JINDALSTEL": "Metals & Mining",
+    "SAIL": "Metals & Mining",
+    "NMDC": "Metals & Mining",
+
+    # Capital Goods / Engineering
+    "BHEL": "Capital Goods",
+    "BEL": "Capital Goods",
+    "HAL": "Capital Goods",
+    "SIEMENS": "Capital Goods",
+    "ABB": "Capital Goods",
+    "THERMAX": "Capital Goods",
+    "CGPOWER": "Capital Goods",
+    "POLYCAB": "Capital Goods",
+    "POWERINDIA": "Capital Goods",
+
+    # Power / Utilities
+    "ADANIENSOL": "Power & Utilities",
+    "NTPC": "Power & Utilities",
+    "POWERGRID": "Power & Utilities",
+    "TATAPOWER": "Power & Utilities",
+    "TORNTPOWER": "Power & Utilities",
+    "JSWENERGY": "Power & Utilities",
+
+    # Pharma
+    "SUNPHARMA": "Pharma",
+    "DRREDDY": "Pharma",
+    "CIPLA": "Pharma",
+    "DIVISLAB": "Pharma",
+    "LUPIN": "Pharma",
+    "AUROPHARMA": "Pharma",
+    "TORNTPHARM": "Pharma",
+    "GRANULES": "Pharma",
+    "ZYDUSLIFE": "Pharma",
+    "MANKIND": "Pharma",
+
+    # Healthcare
+    "ASTERDM": "Healthcare",
+    "APOLLOHOSP": "Healthcare",
+    "MAXHEALTH": "Healthcare",
+    "FORTIS": "Healthcare",
+    "KIMS": "Healthcare",
+    "MEDANTA": "Healthcare",
+
+    # Chemicals
+    "HSCL": "Chemicals",
+    "PIDILITIND": "Chemicals",
+    "SRF": "Chemicals",
+    "DEEPAKNTR": "Chemicals",
+    "NAVINFLUOR": "Chemicals",
+    "TATACHEM": "Chemicals",
+    "PIIND": "Chemicals",
+
+    # IT
+    "TCS": "IT",
+    "INFY": "IT",
+    "HCLTECH": "IT",
+    "WIPRO": "IT",
+    "TECHM": "IT",
+    "LTIM": "IT",
+    "PERSISTENT": "IT",
+    "COFORGE": "IT",
+    "MPHASIS": "IT",
+
+    # Auto
+    "MARUTI": "Auto",
+    "TATAMOTORS": "Auto",
+    "M&M": "Auto",
+    "BAJAJ-AUTO": "Auto",
+    "EICHERMOT": "Auto",
+    "HEROMOTOCO": "Auto",
+    "TVSMOTOR": "Auto",
+    "ASHOKLEY": "Auto",
+    "BHARATFORG": "Auto",
+
+    # FMCG
+    "HINDUNILVR": "FMCG",
+    "ITC": "FMCG",
+    "NESTLEIND": "FMCG",
+    "BRITANNIA": "FMCG",
+    "TATACONSUM": "FMCG",
+    "DABUR": "FMCG",
+    "MARICO": "FMCG",
+    "COLPAL": "FMCG",
+    "GODREJCP": "FMCG",
+    "UNITDSPR": "FMCG",
+
+    # Oil & Gas
+    "RELIANCE": "Oil & Gas",
+    "ONGC": "Oil & Gas",
+    "IOC": "Oil & Gas",
+    "BPCL": "Oil & Gas",
+    "GAIL": "Oil & Gas",
+    "HINDPETRO": "Oil & Gas",
+    "PETRONET": "Oil & Gas",
+
+    # Construction / Infrastructure
+    "LT": "Infrastructure",
+    "DLF": "Realty",
+    "ADANIENT": "Infrastructure",
+    "ADANIPORTS": "Infrastructure",
+    "RVNL": "Infrastructure",
+    "IRCON": "Infrastructure",
+    "NBCC": "Infrastructure",
+
+    # Telecom
+    "BHARTIARTL": "Telecom",
+    "INDUSTOWER": "Telecom",
+    "IDEA": "Telecom",
+
+    # Consumer Durables
+    "DIXON": "Consumer Durables",
+    "VOLTAS": "Consumer Durables",
+    "WHIRLPOOL": "Consumer Durables",
+    "HAVELLS": "Consumer Durables",
+    "BLUESTARCO": "Consumer Durables",
+
+    # Realty
+    "PHOENIXLTD": "Realty",
+    "LODHA": "Realty",
+    "GODREJPROP": "Realty",
+    "OBEROIRLTY": "Realty",
+    "PRESTIGE": "Realty",
+
+    # Textiles
+    "KPRMILL": "Textiles",
+    "TRIDENT": "Textiles",
+
+    # Defence
+    "MAZDOCK": "Defence",
+    "COCHINSHIP": "Defence",
+    "BDL": "Defence",
+}
+
+
+def get_symbol(row):
+    for col in ["Stock", "Symbol", "Ticker"]:
+        if col in row.index:
+            value = str(row[col]).strip().upper()
+            if value:
+                return value
+    return ""
+
+
+def main():
+
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(
+            f"{INPUT_FILE} not found"
+        )
+
+    df = pd.read_csv(INPUT_FILE)
+
+    if df.empty:
+        raise RuntimeError(
+            "live_plan2_top50.csv is empty"
+        )
+
+    # Keep the original Plan 2 order exactly.
+    df["Symbol_Check"] = df.apply(
+        get_symbol,
+        axis=1
+    )
+
+    df["Sector"] = df["Symbol_Check"].map(
+        SECTOR_MAP
+    ).fillna("Other")
+
+    # Sector rank while preserving Plan 2 rank order.
+    df["Sector Rank"] = (
+        df.groupby("Sector")
+        .cumcount() + 1
+    )
+
+    # Overall sector position.
+    df["Sector Stock Count"] = (
+        df.groupby("Sector")["Sector"]
+        .transform("count")
+    )
+
+    # Keep useful columns first.
+    preferred = [
+        "Rank",
+        "Stock",
+        "Symbol",
+        "Ticker",
+        "Sector",
+        "Sector Rank",
+        "Sector Stock Count",
+        "Live Price",
+        "Momentum %",
+        "ID",
+        "Signal"
+    ]
+
+    columns = [
+        c for c in preferred
+        if c in df.columns
+    ]
+
+    remaining = [
+        c for c in df.columns
+        if c not in columns
+        and c != "Symbol_Check"
+    ]
+
+    out = df[columns + remaining]
+
+    out.to_csv(
+        OUTPUT_FILE,
+        index=False
+    )
+
+    print("Sector-wise Plan 2 Top 50")
+    print("-------------------------")
+    print(f"Input stocks : {len(df)}")
+    print(f"Output stocks: {len(out)}")
+    print()
+    print(
+        out[
+            [
+                c for c in
+                [
+                    "Rank",
+                    "Stock",
+                    "Sector",
+                    "Sector Rank"
+                ]
+                if c in out.columns
+            ]
+        ].to_string(index=False)
+    )
+
+    print()
+    print("Sector summary")
+    print("--------------")
+    print(
+        out["Sector"]
+        .value_counts()
+        .to_string()
+    )
+
+    # Safety: output must contain exactly
+    # the same number of stocks as Plan 2 Top 50.
+    if len(out) != len(df):
+        raise RuntimeError(
+            "Sector classification lost stocks"
+        )
+
+
+if __name__ == "__main__":
+    main()
