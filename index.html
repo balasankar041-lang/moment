@@ -82,18 +82,6 @@ th{
     background:#eee;
 }
 
-.buy{
-    font-weight:bold;
-}
-
-.hold{
-    font-weight:bold;
-}
-
-.sell{
-    font-weight:bold;
-}
-
 .note{
     color:#666;
     font-size:13px;
@@ -120,6 +108,11 @@ Nifty 500 • Momentum + ID • Monthly strategy • Manual broker execution
 <div class="box">
 Plan 2 Top 50
 <b id="top50Count">0</b>
+</div>
+
+<div class="box">
+Sector Stocks
+<b id="sectorCount">0</b>
 </div>
 
 <div class="box">
@@ -175,6 +168,51 @@ Cash
 </thead>
 
 <tbody id="top50Body"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+<!-- SECTOR-WISE TOP 50 -->
+
+<h2>Sector-wise Plan 2 Top 50</h2>
+
+<div class="note">
+Same Plan 2 Top 50 stocks • Sector classification only •
+No stocks added or removed • Original Plan 2 ranking unchanged
+</div>
+
+<div class="card">
+
+<input
+    id="sectorSearch"
+    type="text"
+    placeholder="Search stock or sector..."
+    onkeyup="renderSector()"
+>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Plan 2 Rank</th>
+<th>Stock</th>
+<th>Sector</th>
+<th>Sector Rank</th>
+<th>Sector Count</th>
+<th>Price</th>
+<th>Momentum %</th>
+<th>ID</th>
+<th>Signal</th>
+</tr>
+</thead>
+
+<tbody id="sectorBody"></tbody>
 
 </table>
 
@@ -270,6 +308,7 @@ const BASE =
 "https://raw.githubusercontent.com/balasankar041-lang/moment/main/";
 
 let top50 = [];
+let sectorTop50 = [];
 let allocation = [];
 let signals = [];
 
@@ -531,6 +570,157 @@ function renderTop50(){
 }
 
 
+function renderSector(){
+
+    const search =
+        document
+        .getElementById("sectorSearch")
+        .value
+        .toLowerCase();
+
+    const filtered =
+        sectorTop50.filter(row=>{
+
+            const stock =
+                String(
+                    pick(
+                        row,
+                        [
+                            "Stock",
+                            "Symbol",
+                            "Ticker"
+                        ]
+                    )
+                ).toLowerCase();
+
+            const sector =
+                String(
+                    pick(
+                        row,
+                        [
+                            "Sector"
+                        ]
+                    )
+                ).toLowerCase();
+
+            return (
+                stock.includes(search) ||
+                sector.includes(search)
+            );
+        });
+
+
+    document
+    .getElementById("sectorBody")
+    .innerHTML =
+        filtered.map(row=>{
+
+            const rank =
+                pick(
+                    row,
+                    [
+                        "Rank",
+                        "ID Rank",
+                        "Portfolio Rank"
+                    ]
+                );
+
+            const stock =
+                pick(
+                    row,
+                    [
+                        "Stock",
+                        "Symbol",
+                        "Ticker"
+                    ]
+                );
+
+            const sector =
+                pick(
+                    row,
+                    [
+                        "Sector"
+                    ]
+                );
+
+            const sectorRank =
+                pick(
+                    row,
+                    [
+                        "Sector Rank"
+                    ]
+                );
+
+            const sectorCount =
+                pick(
+                    row,
+                    [
+                        "Sector Stock Count"
+                    ]
+                );
+
+            const price =
+                pick(
+                    row,
+                    [
+                        "Live Price",
+                        "Price",
+                        "Current Price"
+                    ]
+                );
+
+            const momentum =
+                pick(
+                    row,
+                    [
+                        "Momentum %",
+                        "Momentum",
+                        "Momentum Return"
+                    ]
+                );
+
+            const id =
+                pick(
+                    row,
+                    [
+                        "ID",
+                        "Id",
+                        "ID Score"
+                    ]
+                );
+
+            const signal =
+                pick(
+                    row,
+                    [
+                        "Signal",
+                        "Portfolio Signal"
+                    ]
+                );
+
+            return `
+            <tr>
+                <td>${rank}</td>
+                <td><b>${stock}</b></td>
+                <td>${sector}</td>
+                <td>${sectorRank}</td>
+                <td>${sectorCount}</td>
+                <td>${money(price)}</td>
+                <td>${num(momentum)}%</td>
+                <td>${num(id)}</td>
+                <td>${signal}</td>
+            </tr>
+            `;
+
+        }).join("");
+
+    document
+    .getElementById("sectorCount")
+    .textContent =
+        sectorTop50.length;
+}
+
+
 function renderAllocation(){
 
     const search =
@@ -750,6 +940,11 @@ async function loadDashboard(){
                 "live_plan2_top50.csv"
             );
 
+        sectorTop50 =
+            await loadCSV(
+                "sector_wise_top50.csv"
+            );
+
         allocation =
             await loadCSV(
                 "capital_auto_allocation.csv"
@@ -761,6 +956,7 @@ async function loadDashboard(){
             );
 
         renderTop50();
+        renderSector();
         renderAllocation();
         renderSignals();
 
