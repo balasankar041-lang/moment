@@ -83,7 +83,7 @@ function render(q=""){
  const a=allocation.filter(x=>pick(x,["Stock","Symbol","Ticker"]).toLowerCase().includes(q.toLowerCase()));
  document.getElementById("tbody").innerHTML=a.map(x=>{
   const stock=pick(x,["Stock","Symbol","Ticker"]), price=pick(x,["Live Price","Price","Current Price"]);
-  return `<tr><td><b>${stock}</b></td><td>${money(price)}</td><td>${money(pick(x,["Target Amount"]))}</td><td>${pick(x,["Shares"])}</td><td>${money(pick(x,["Invested"]))}</td><td>${Number(pick(x,["Weight % of Capital"])||0).toFixed(2)}%</td></tr>`;
+  return `<tr><td><b>${stock}</b></td><td>${money(price)}</td><td>${money(pick(x,["Target Amount"]))}</td><td>${pick(x,["Shares"])}</td><td>${money(pick(x,["Invested Amount","Invested"]))}</td><td>${Number(pick(x,["Weight %","Weight % of Capital"])||0).toFixed(2)}%</td></tr>`;
  }).join("");
 }
 function renderSignals(){
@@ -97,7 +97,7 @@ async function load(){
  try{
   allocation=await get("capital_auto_allocation.csv");
   try{signals=await get("signal_history.csv")}catch(e){signals=[]}
-  const invested=allocation.reduce((s,x)=>s+Number(pick(x,["Invested"])||0),0);
+  const invested=allocation.reduce((s,x)=>s+Number(pick(x,["Invested Amount","Invested"])||0),0);
   document.getElementById("count").textContent=allocation.length;
   document.getElementById("invested").textContent=money(invested);
   document.getElementById("cash").textContent=money(20000-invested);
