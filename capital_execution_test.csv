@@ -1,2 +1,2 @@
-Capital,Target Stock Count,Executable Stock Count,Invested,Cash Remaining,Min Stocks,Max Stocks,Status
-20000.0,20,20,17237.8,2762.2,10,50,PASS
+Capital,Max Per Stock,Minimum Stocks,Target Stock Count,Executable Stock Count,Invested,Cash Remaining,Status
+20000.0,1500.0,10,13,13,15248.53,4751.47,PASS
