@@ -64,6 +64,20 @@ jobs:
       - name: Run ₹20,000 capital execution test
         run: python capital_execution_test.py
 
+      - name: Save latest capital allocation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@github.com"
+
+          git add capital_auto_allocation.csv capital_execution_test.csv
+
+          if git diff --cached --quiet; then
+            echo "No capital allocation changes."
+          else
+            git commit -m "Update ₹20,000 capital allocation"
+            git push
+          fi
+
       - name: Walk-forward validation
         run: python walk_forward.py
 
@@ -87,6 +101,7 @@ jobs:
           test -f live_plan2_top50.csv
           test -f ipo_watch.csv
           test -f capital_execution_test.csv
+          test -f capital_auto_allocation.csv
           echo "Required outputs are present."
 
       - name: Upload complete results
