@@ -1,132 +1,287 @@
-import pandas as pd
+"""
+Plan 2 practical capital allocation
+
+Rule:
+- Capital = ₹20,000
+- Select 10 affordable stocks from Plan 2 Top 50
+- Maximum ₹1,500 per stock
+- Whole shares only
+- Total investment <= ₹20,000
+- Plan 2 ranking is unchanged
+"""
+
 from pathlib import Path
 import math
+import pandas as pd
 
-CAPITAL = 20_000.0
-MAX_PER_STOCK = 1_500.0
-MIN_STOCKS = 10
+CAPITAL = 20000.0
+MAX_PER_STOCK = 1500.0
+TARGET_STOCKS = 10
 
-INPUT_FILE = Path("live_plan2_top50.csv")
-OUTPUT_FILE = Path("capital_execution_test.csv")
-ALLOCATION_FILE = Path("capital_auto_allocation.csv")
+TOP50_FILE = Path("live_plan2_top50.csv")
+OUTPUT_FILE = Path("capital_auto_allocation.csv")
 
 
-def find_column(df, names):
+def pick(row, names):
     for name in names:
-        if name in df.columns:
-            return name
-    return None
+        if name in row.index:
+            value = row[name]
+            if pd.notna(value) and str(value).strip() != "":
+                return value
+    return ""
+
+
+def to_num(value):
+    try:
+        return float(
+            str(value)
+            .replace(",", "")
+            .replace("%", "")
+            .strip()
+        )
+    except Exception:
+        return 0.0
 
 
 def main():
-    if not INPUT_FILE.exists():
-        raise FileNotFoundError(f"{INPUT_FILE} not found")
 
-    df = pd.read_csv(INPUT_FILE)
-
-    stock_col = find_column(df, ["Stock", "Symbol", "Ticker"])
-    price_col = find_column(df, ["Live Price", "Price", "Close"])
-
-    if stock_col is None or price_col is None:
-        raise ValueError(
-            f"Required columns not found. Available columns: {list(df.columns)}"
+    if not TOP50_FILE.exists():
+        raise FileNotFoundError(
+            f"{TOP50_FILE} not found"
         )
 
-    work = df[[stock_col, price_col]].copy()
-    work.columns = ["Stock", "Live Price"]
+    df = pd.read_csv(TOP50_FILE)
 
-    work["Live Price"] = pd.to_numeric(work["Live Price"], errors="coerce")
-    work = work.dropna(subset=["Stock", "Live Price"])
-    work = work[work["Live Price"] > 0].copy()
+    if df.empty:
+        raise RuntimeError(
+            "live_plan2_top50.csv is empty"
+        )
 
-    # Keep the existing Plan 2 Top-50 order.
-    # Only stocks priced at or below ₹1,500 are eligible.
-    eligible = work[work["Live Price"] <= MAX_PER_STOCK].copy()
+    rows = []
+    total_invested = 0.0
 
-    # ₹20,000 / ₹1,500 = maximum 13 stocks.
-    max_possible = min(
-        len(eligible),
-        math.floor(CAPITAL / MAX_PER_STOCK)
+    # Keep Plan 2 ranking order unchanged
+    for _, r in df.iterrows():
+
+        if len(rows) >= TARGET_STOCKS:
+            break
+
+        stock = str(
+            pick(r, ["Stock", "Symbol", "Ticker"])
+        ).strip()
+
+        price = to_num(
+            pick(
+                r,
+                [
+                    "Live Price",
+                    "Price",
+                    "Current Price"
+                ]
+            )
+        )
+
+        if not stock or price <= 0:
+            continue
+
+        # Only stocks whose share price is <= ₹1,500
+        if price > MAX_PER_STOCK:
+            continue
+
+        remaining_capital = (
+            CAPITAL - total_invested
+        )
+
+        if remaining_capital <= 0:
+            break
+
+        # Whole shares only
+        shares = math.floor(
+            min(
+                MAX_PER_STOCK,
+                remaining_capital
+            ) / price
+        )
+
+        if shares < 1:
+            continue
+
+        invested = round(
+            shares * price,
+            2
+        )
+
+        if invested <= 0:
+            continue
+
+        if invested > MAX_PER_STOCK:
+            continue
+
+        if (
+            total_invested + invested
+            > CAPITAL + 1e-9
+        ):
+            continue
+
+        total_invested += invested
+
+        rows.append(
+            {
+                "Rank": pick(
+                    r,
+                    [
+                        "Rank",
+                        "ID Rank",
+                        "Portfolio Rank"
+                    ]
+                ),
+
+                "Stock": stock,
+
+                "Live Price": round(
+                    price,
+                    2
+                ),
+
+                "Momentum %": to_num(
+                    pick(
+                        r,
+                        [
+                            "Momentum %",
+                            "Momentum",
+                            "Momentum Return"
+                        ]
+                    )
+                ),
+
+                "ID": to_num(
+                    pick(
+                        r,
+                        [
+                            "ID",
+                            "Id",
+                            "ID Score"
+                        ]
+                    )
+                ),
+
+                "Signal": pick(
+                    r,
+                    [
+                        "Signal",
+                        "Portfolio Signal"
+                    ]
+                ),
+
+                "Target Amount": invested,
+
+                "Shares": int(shares),
+
+                "Invested Amount": invested
+            }
+        )
+
+    out = pd.DataFrame(rows)
+
+    if not out.empty:
+
+        out["Weight %"] = (
+            out["Invested Amount"]
+            / CAPITAL
+            * 100
+        ).round(2)
+
+        cash = round(
+            CAPITAL - total_invested,
+            2
+        )
+
+        out["Cash After Allocation"] = cash
+
+    else:
+
+        out = pd.DataFrame(
+            columns=[
+                "Rank",
+                "Stock",
+                "Live Price",
+                "Momentum %",
+                "ID",
+                "Signal",
+                "Target Amount",
+                "Shares",
+                "Invested Amount",
+                "Weight %",
+                "Cash After Allocation"
+            ]
+        )
+
+    # Safety checks
+
+    if len(out) > TARGET_STOCKS:
+        raise RuntimeError(
+            "More than 10 stocks selected"
+        )
+
+    if not out.empty:
+
+        if (
+            out["Invested Amount"]
+            > MAX_PER_STOCK + 1e-9
+        ).any():
+
+            raise RuntimeError(
+                "A stock exceeded ₹1,500"
+            )
+
+        if (
+            out["Invested Amount"].sum()
+            > CAPITAL + 1e-9
+        ):
+
+            raise RuntimeError(
+                "Allocation exceeded ₹20,000"
+            )
+
+    out.to_csv(
+        OUTPUT_FILE,
+        index=False
     )
 
-    target_count = max_possible
-
-    if target_count < MIN_STOCKS:
-        target_count = min(len(eligible), MIN_STOCKS)
-
-    selected = eligible.head(target_count).copy()
-
-    # Whole shares only.
-    selected["Target Amount"] = MAX_PER_STOCK
-    selected["Shares"] = (
-        selected["Target Amount"] / selected["Live Price"]
-    ).apply(math.floor)
-
-    selected = selected[selected["Shares"] >= 1].copy()
-
-    selected["Invested Amount"] = (
-        selected["Shares"] * selected["Live Price"]
+    print(
+        "Plan 2 practical allocation"
     )
 
-    # Hard capital safety check.
-    while (
-        selected["Invested Amount"].sum() > CAPITAL
-        and len(selected) > MIN_STOCKS
-    ):
-        selected = selected.iloc[:-1].copy()
-
-    invested = float(selected["Invested Amount"].sum())
-    cash = CAPITAL - invested
-
-    selected["Weight %"] = (
-        selected["Invested Amount"] / CAPITAL * 100
+    print(
+        f"Capital: ₹{CAPITAL:,.2f}"
     )
 
-    status = "PASS"
+    print(
+        f"Max per stock: ₹{MAX_PER_STOCK:,.2f}"
+    )
 
-    if invested > CAPITAL + 1e-9:
-        status = "FAIL: capital exceeded"
-    elif len(selected) < MIN_STOCKS:
-        status = f"CAUTION: only {len(selected)} executable stocks"
+    print(
+        f"Target stocks: {TARGET_STOCKS}"
+    )
 
-    allocation = selected[
-        [
-            "Stock",
-            "Live Price",
-            "Target Amount",
-            "Shares",
-            "Invested Amount",
-            "Weight %",
-        ]
-    ].copy()
+    print(
+        f"Selected stocks: {len(out)}"
+    )
 
-    allocation.to_csv(ALLOCATION_FILE, index=False)
+    print(
+        f"Invested: ₹{total_invested:,.2f}"
+    )
 
-    summary = pd.DataFrame([{
-        "Capital": CAPITAL,
-        "Max Per Stock": MAX_PER_STOCK,
-        "Minimum Stocks": MIN_STOCKS,
-        "Target Stock Count": target_count,
-        "Executable Stock Count": len(selected),
-        "Invested": round(invested, 2),
-        "Cash Remaining": round(cash, 2),
-        "Status": status,
-    }])
+    print(
+        f"Cash: ₹{CAPITAL-total_invested:,.2f}"
+    )
 
-    summary.to_csv(OUTPUT_FILE, index=False)
+    print(
+        f"Output: {OUTPUT_FILE}"
+    )
 
-    print("=== ₹20,000 CAPITAL EXECUTION TEST ===")
-    print(f"Max per stock: ₹{MAX_PER_STOCK:,.0f}")
-    print(f"Minimum stocks: {MIN_STOCKS}")
-    print(f"Target stock count: {target_count}")
-    print(f"Executable stock count: {len(selected)}")
-    print(f"Invested: ₹{invested:,.2f}")
-    print(f"Cash remaining: ₹{cash:,.2f}")
-    print(f"Status: {status}")
-
-    print()
-    print("=== AUTOMATIC ALLOCATION ===")
-    print(allocation.to_string(index=False))
+    if not out.empty:
+        print(out.to_string(index=False))
 
 
 if __name__ == "__main__":
