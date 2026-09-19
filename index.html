@@ -1,117 +1,789 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Plan 2 Live Investment Dashboard</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Plan 2 Live Screener</title>
+
 <style>
-*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#172033;font-family:Arial,sans-serif}
-header{background:#111827;color:#fff;padding:22px 16px}main{max-width:1200px;margin:auto;padding:16px}
-h1{margin:0 0 5px;font-size:24px}.muted{color:#64748b;font-size:13px}
-header .muted{color:#cbd5e1}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:14px 0}
-.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:15px}.label{font-size:11px;text-transform:uppercase;color:#64748b}.value{font-size:23px;font-weight:700;margin-top:6px}
-.section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:14px 0}
-.status{display:inline-block;padding:5px 9px;border-radius:20px;background:#dcfce7;color:#166534;font-size:12px;font-weight:bold}
-input{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;margin:8px 0 12px}
-.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:9px;border-bottom:1px solid #edf0f4;text-align:right;white-space:nowrap}
-th:first-child,td:first-child{text-align:left}th{background:#f8fafc;color:#475569}
-#error{display:none;background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px}.small{font-size:12px}
+body{
+    font-family:Arial,sans-serif;
+    margin:0;
+    padding:20px;
+    background:#f5f5f5;
+    color:#222;
+}
+
+h1{
+    margin-bottom:5px;
+}
+
+h2{
+    margin-top:30px;
+}
+
+.card{
+    background:white;
+    padding:18px;
+    margin:15px 0;
+    border-radius:10px;
+    box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+
+.summary{
+    display:flex;
+    gap:15px;
+    flex-wrap:wrap;
+}
+
+.box{
+    background:white;
+    padding:15px;
+    border-radius:8px;
+    min-width:150px;
+    box-shadow:0 2px 6px rgba(0,0,0,.06);
+}
+
+.box b{
+    display:block;
+    font-size:20px;
+    margin-top:5px;
+}
+
+input{
+    width:100%;
+    max-width:400px;
+    padding:10px;
+    border:1px solid #ccc;
+    border-radius:6px;
+    margin:10px 0 15px;
+    box-sizing:border-box;
+}
+
+.table-wrap{
+    overflow-x:auto;
+}
+
+table{
+    width:100%;
+    border-collapse:collapse;
+    background:white;
+}
+
+th,td{
+    padding:10px;
+    border-bottom:1px solid #ddd;
+    text-align:left;
+    white-space:nowrap;
+}
+
+th{
+    background:#eee;
+}
+
+.buy{
+    font-weight:bold;
+}
+
+.hold{
+    font-weight:bold;
+}
+
+.sell{
+    font-weight:bold;
+}
+
+.note{
+    color:#666;
+    font-size:13px;
+}
+
+.refresh{
+    margin-top:10px;
+    color:#666;
+    font-size:13px;
+}
 </style>
 </head>
+
 <body>
-<header><div style="max-width:1200px;margin:auto">
-<h1>Plan 2 Live Investment Dashboard</h1>
-<div class="muted">Automatic GitHub CSV reader • ₹20,000 capital • Manual broker execution</div>
-</div></header>
-<main>
-<div id="error"></div>
-<div class="grid">
-<div class="card"><div class="label">Capital</div><div class="value">₹20,000</div></div>
-<div class="card"><div class="label">Target Stocks</div><div class="value" id="count">—</div></div>
-<div class="card"><div class="label">Invested</div><div class="value" id="invested">—</div></div>
-<div class="card"><div class="label">Cash</div><div class="value" id="cash">—</div></div>
-<div class="card"><div class="label">Data Status</div><div class="value"><span class="status" id="status">Loading</span></div></div>
+
+<h1>Plan 2 Live Screener</h1>
+
+<div class="note">
+Nifty 500 • Momentum + ID • Monthly strategy • Manual broker execution
 </div>
 
-<section class="section">
-<h2>Current ₹20,000 Allocation</h2>
-<div class="muted">This table is loaded from the latest <b>capital_auto_allocation.csv</b> in GitHub.</div>
-<input id="search" placeholder="Search stock...">
-<div class="tablewrap"><table><thead><tr>
-<th>Stock</th><th>Price</th><th>Target</th><th>Shares</th><th>Invested</th><th>Weight</th>
-</tr></thead><tbody id="tbody"></tbody></table></div>
-</section>
+<div class="summary">
 
-<section class="section">
+<div class="box">
+Plan 2 Top 50
+<b id="top50Count">0</b>
+</div>
+
+<div class="box">
+Allocation Stocks
+<b id="allocationCount">0</b>
+</div>
+
+<div class="box">
+Capital
+<b>₹20,000</b>
+</div>
+
+<div class="box">
+Invested
+<b id="invested">₹0</b>
+</div>
+
+<div class="box">
+Cash
+<b id="cash">₹20,000</b>
+</div>
+
+</div>
+
+
+<!-- PLAN 2 TOP 50 -->
+
+<h2>Plan 2 Current Top 50</h2>
+
+<div class="card">
+
+<input
+    id="top50Search"
+    type="text"
+    placeholder="Search stock..."
+    onkeyup="renderTop50()"
+>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Rank</th>
+<th>Stock</th>
+<th>Price</th>
+<th>Momentum %</th>
+<th>ID</th>
+<th>Signal</th>
+<th>Weight</th>
+</tr>
+</thead>
+
+<tbody id="top50Body"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+<!-- PRACTICAL ALLOCATION -->
+
+<h2>₹20,000 Practical Allocation</h2>
+
+<div class="note">
+10 stocks • Maximum ₹1,500 per stock • Whole shares only •
+Plan 2 ranking unchanged
+</div>
+
+<div class="card">
+
+<input
+    id="allocationSearch"
+    type="text"
+    placeholder="Search stock..."
+    onkeyup="renderAllocation()"
+>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Rank</th>
+<th>Stock</th>
+<th>Price</th>
+<th>Target</th>
+<th>Shares</th>
+<th>Invested</th>
+<th>Weight</th>
+</tr>
+</thead>
+
+<tbody id="allocationBody"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+<!-- SIGNAL HISTORY -->
+
 <h2>Signal History</h2>
-<div class="muted">Loaded from <b>signal_history.csv</b>. The latest rows are shown below.</div>
-<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Signal</th><th>Reason</th><th>Date</th></tr></thead>
-<tbody id="signals"></tbody></table></div>
-</section>
 
-<section class="section">
-<h2>Monthly Rebalance</h2>
-<p class="small">On each monthly run, the GitHub workflow generates a fresh Plan 2 portfolio and ₹20,000 whole-share allocation. New selections are BUY, existing selections are HOLD, and dropped holdings are SELL. This dashboard displays the generated result; it does not place broker orders.</p>
-<p class="small">Historical performance is not a guarantee of future returns.</p>
-</section>
-</main>
+<div class="card">
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Date</th>
+<th>Stock</th>
+<th>Signal</th>
+<th>Reason</th>
+</tr>
+</thead>
+
+<tbody id="signalBody"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+<div class="refresh">
+Auto refresh: every 5 minutes
+</div>
+
+<div class="note">
+This dashboard is for research and execution planning.
+Orders are not automatically sent to a broker.
+</div>
+
 
 <script>
-const BASE="https://raw.githubusercontent.com/balasankar041-lang/moment/main/";
-let allocation=[], signals=[];
-function parseCSV(s){
- const rows=[]; let row=[], cell="", q=false;
- for(let i=0;i<s.length;i++){const c=s[i],n=s[i+1];
-  if(c=='"' && q && n=='"'){cell+='"';i++;continue}
-  if(c=='"'){q=!q;continue}
-  if(c==','&&!q){row.push(cell);cell="";continue}
-  if((c=='\n'||c=='\r')&&!q){if(c=='\r'&&n=='\n')i++;row.push(cell);cell="";if(row.some(x=>x.trim()!==''))rows.push(row);row=[];continue}
-  cell+=c;
- }
- if(cell!==''||row.length){row.push(cell);rows.push(row)}
- const h=rows.shift().map(x=>x.trim());
- return rows.map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||"").trim()])));
+
+const BASE =
+"https://raw.githubusercontent.com/balasankar041-lang/moment/main/";
+
+let top50 = [];
+let allocation = [];
+let signals = [];
+
+
+function money(value){
+
+    const n = Number(value || 0);
+
+    return "₹" + n.toLocaleString(
+        "en-IN",
+        {
+            minimumFractionDigits:2,
+            maximumFractionDigits:2
+        }
+    );
 }
-const money=x=>"₹"+Number(x||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
-async function get(file){
- const r=await fetch(BASE+file+"?t="+Date.now(),{cache:"no-store"});
- if(!r.ok)throw new Error(file+" unavailable");
- return parseCSV(await r.text());
+
+
+function num(value){
+
+    const n = Number(value || 0);
+
+    return n.toLocaleString(
+        "en-IN",
+        {
+            maximumFractionDigits:2
+        }
+    );
 }
-function pick(o,names){for(const n of names){if(o[n]!==undefined)return o[n]}return ""}
-function render(q=""){
- const a=allocation.filter(x=>pick(x,["Stock","Symbol","Ticker"]).toLowerCase().includes(q.toLowerCase()));
- document.getElementById("tbody").innerHTML=a.map(x=>{
-  const stock=pick(x,["Stock","Symbol","Ticker"]), price=pick(x,["Live Price","Price","Current Price"]);
-  return `<tr><td><b>${stock}</b></td><td>${money(price)}</td><td>${money(pick(x,["Target Amount"]))}</td><td>${pick(x,["Shares"])}</td><td>${money(pick(x,["Invested Amount","Invested"]))}</td><td>${Number(pick(x,["Weight %","Weight % of Capital"])||0).toFixed(2)}%</td></tr>`;
- }).join("");
+
+
+function pick(row,names){
+
+    for(const name of names){
+
+        if(
+            row[name] !== undefined &&
+            row[name] !== null &&
+            String(row[name]).trim() !== ""
+        ){
+
+            return row[name];
+        }
+    }
+
+    return "";
 }
+
+
+function parseCSV(text){
+
+    const lines =
+        text.trim().split(/\r?\n/);
+
+    if(lines.length < 2){
+        return [];
+    }
+
+    const headers =
+        parseCSVLine(lines[0]);
+
+    return lines.slice(1).map(line=>{
+
+        const values =
+            parseCSVLine(line);
+
+        const obj={};
+
+        headers.forEach(
+            (h,i)=>{
+                obj[h]=values[i] ?? "";
+            }
+        );
+
+        return obj;
+
+    });
+}
+
+
+function parseCSVLine(line){
+
+    const result=[];
+    let current="";
+    let quoted=false;
+
+    for(let i=0;i<line.length;i++){
+
+        const c=line[i];
+
+        if(c === '"'){
+
+            if(
+                quoted &&
+                line[i+1] === '"'
+            ){
+
+                current += '"';
+                i++;
+            }
+            else{
+                quoted=!quoted;
+            }
+
+        }
+        else if(
+            c === "," &&
+            !quoted
+        ){
+
+            result.push(current);
+            current="";
+        }
+        else{
+
+            current += c;
+        }
+    }
+
+    result.push(current);
+
+    return result;
+}
+
+
+async function loadCSV(file){
+
+    const response =
+        await fetch(
+            BASE +
+            file +
+            "?t=" +
+            Date.now()
+        );
+
+    if(!response.ok){
+        throw new Error(
+            file +
+            " HTTP " +
+            response.status
+        );
+    }
+
+    const text =
+        await response.text();
+
+    return parseCSV(text);
+}
+
+
+function renderTop50(){
+
+    const search =
+        document
+        .getElementById("top50Search")
+        .value
+        .toLowerCase();
+
+    const filtered =
+        top50.filter(row=>{
+
+            const stock =
+                String(
+                    pick(
+                        row,
+                        [
+                            "Stock",
+                            "Symbol",
+                            "Ticker"
+                        ]
+                    )
+                ).toLowerCase();
+
+            return stock.includes(search);
+        });
+
+
+    document
+    .getElementById("top50Body")
+    .innerHTML =
+        filtered.map(row=>{
+
+            const rank =
+                pick(
+                    row,
+                    [
+                        "Rank",
+                        "ID Rank",
+                        "Portfolio Rank"
+                    ]
+                );
+
+            const stock =
+                pick(
+                    row,
+                    [
+                        "Stock",
+                        "Symbol",
+                        "Ticker"
+                    ]
+                );
+
+            const price =
+                pick(
+                    row,
+                    [
+                        "Live Price",
+                        "Price",
+                        "Current Price"
+                    ]
+                );
+
+            const momentum =
+                pick(
+                    row,
+                    [
+                        "Momentum %",
+                        "Momentum",
+                        "Momentum Return"
+                    ]
+                );
+
+            const id =
+                pick(
+                    row,
+                    [
+                        "ID",
+                        "Id",
+                        "ID Score"
+                    ]
+                );
+
+            const signal =
+                pick(
+                    row,
+                    [
+                        "Signal",
+                        "Portfolio Signal"
+                    ]
+                );
+
+            return `
+            <tr>
+                <td>${rank}</td>
+                <td><b>${stock}</b></td>
+                <td>${money(price)}</td>
+                <td>${num(momentum)}%</td>
+                <td>${num(id)}</td>
+                <td>${signal}</td>
+                <td>2.00%</td>
+            </tr>
+            `;
+
+        }).join("");
+
+    document
+    .getElementById("top50Count")
+    .textContent = top50.length;
+}
+
+
+function renderAllocation(){
+
+    const search =
+        document
+        .getElementById("allocationSearch")
+        .value
+        .toLowerCase();
+
+    const filtered =
+        allocation.filter(row=>{
+
+            const stock =
+                String(
+                    pick(
+                        row,
+                        [
+                            "Stock",
+                            "Symbol",
+                            "Ticker"
+                        ]
+                    )
+                ).toLowerCase();
+
+            return stock.includes(search);
+        });
+
+
+    document
+    .getElementById("allocationBody")
+    .innerHTML =
+        filtered.map(row=>{
+
+            const rank =
+                pick(
+                    row,
+                    [
+                        "Rank",
+                        "ID Rank",
+                        "Portfolio Rank"
+                    ]
+                );
+
+            const stock =
+                pick(
+                    row,
+                    [
+                        "Stock",
+                        "Symbol",
+                        "Ticker"
+                    ]
+                );
+
+            const price =
+                pick(
+                    row,
+                    [
+                        "Live Price",
+                        "Price",
+                        "Current Price"
+                    ]
+                );
+
+            const target =
+                pick(
+                    row,
+                    [
+                        "Target Amount"
+                    ]
+                );
+
+            const shares =
+                pick(
+                    row,
+                    [
+                        "Shares"
+                    ]
+                );
+
+            const invested =
+                pick(
+                    row,
+                    [
+                        "Invested Amount",
+                        "Invested"
+                    ]
+                );
+
+            const weight =
+                pick(
+                    row,
+                    [
+                        "Weight %",
+                        "Weight % of Capital"
+                    ]
+                );
+
+            return `
+            <tr>
+                <td>${rank}</td>
+                <td><b>${stock}</b></td>
+                <td>${money(price)}</td>
+                <td>${money(target)}</td>
+                <td>${shares}</td>
+                <td>${money(invested)}</td>
+                <td>${num(weight)}%</td>
+            </tr>
+            `;
+
+        }).join("");
+
+
+    document
+    .getElementById("allocationCount")
+    .textContent =
+        allocation.length;
+
+
+    const investedTotal =
+        allocation.reduce(
+            (sum,row)=>
+                sum +
+                Number(
+                    pick(
+                        row,
+                        [
+                            "Invested Amount",
+                            "Invested"
+                        ]
+                    )
+                    || 0
+                ),
+            0
+        );
+
+
+    document
+    .getElementById("invested")
+    .textContent =
+        money(investedTotal);
+
+
+    document
+    .getElementById("cash")
+    .textContent =
+        money(
+            20000 -
+            investedTotal
+        );
+}
+
+
 function renderSignals(){
- const rows=signals.slice(-50).reverse();
- document.getElementById("signals").innerHTML=rows.map(x=>{
-  const stock=pick(x,["Stock","Symbol","Ticker"]), sig=pick(x,["Signal","Portfolio Signal"]);
-  return `<tr><td>${stock}</td><td>${sig}</td><td>${pick(x,["Reason","Signal Reason"])}</td><td>${pick(x,["Date","Run Date","Timestamp"])}</td></tr>`;
- }).join("");
+
+    document
+    .getElementById("signalBody")
+    .innerHTML =
+        signals
+        .slice()
+        .reverse()
+        .map(row=>{
+
+            const date =
+                pick(
+                    row,
+                    [
+                        "Date",
+                        "date"
+                    ]
+                );
+
+            const stock =
+                pick(
+                    row,
+                    [
+                        "Stock",
+                        "Symbol",
+                        "Ticker"
+                    ]
+                );
+
+            const signal =
+                pick(
+                    row,
+                    [
+                        "Signal"
+                    ]
+                );
+
+            const reason =
+                pick(
+                    row,
+                    [
+                        "Reason",
+                        "Message"
+                    ]
+                );
+
+            return `
+            <tr>
+                <td>${date}</td>
+                <td>${stock}</td>
+                <td>${signal}</td>
+                <td>${reason}</td>
+            </tr>
+            `;
+
+        }).join("");
 }
-async function load(){
- try{
-  allocation=await get("capital_auto_allocation.csv");
-  try{signals=await get("signal_history.csv")}catch(e){signals=[]}
-  const invested=allocation.reduce((s,x)=>s+Number(pick(x,["Invested Amount","Invested"])||0),0);
-  document.getElementById("count").textContent=allocation.length;
-  document.getElementById("invested").textContent=money(invested);
-  document.getElementById("cash").textContent=money(20000-invested);
-  document.getElementById("status").textContent="LIVE";
-  render();renderSignals();
- }catch(e){
-  const el=document.getElementById("error");el.style.display="block";
-  el.textContent="Dashboard could not load GitHub data: "+e.message;
-  document.getElementById("status").textContent="ERROR";
- }
+
+
+async function loadDashboard(){
+
+    try{
+
+        top50 =
+            await loadCSV(
+                "live_plan2_top50.csv"
+            );
+
+        allocation =
+            await loadCSV(
+                "capital_auto_allocation.csv"
+            );
+
+        signals =
+            await loadCSV(
+                "signal_history.csv"
+            );
+
+        renderTop50();
+        renderAllocation();
+        renderSignals();
+
+    }
+    catch(error){
+
+        console.error(
+            "Dashboard error:",
+            error
+        );
+    }
 }
-document.getElementById("search").addEventListener("input",e=>render(e.target.value));
-load();
-setInterval(load,5*60*1000);
+
+
+loadDashboard();
+
+
+setInterval(
+    loadDashboard,
+    5 * 60 * 1000
+);
+
 </script>
+
 </body>
 </html>
