@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plan 2 Live Investment Dashboard</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#172033;font-family:Arial,sans-serif}
+header{background:#111827;color:#fff;padding:22px 16px}main{max-width:1200px;margin:auto;padding:16px}
+h1{margin:0 0 5px;font-size:24px}.muted{color:#64748b;font-size:13px}
+header .muted{color:#cbd5e1}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:14px 0}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:15px}.label{font-size:11px;text-transform:uppercase;color:#64748b}.value{font-size:23px;font-weight:700;margin-top:6px}
+.section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:14px 0}
+.status{display:inline-block;padding:5px 9px;border-radius:20px;background:#dcfce7;color:#166534;font-size:12px;font-weight:bold}
+input{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;margin:8px 0 12px}
+.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:9px;border-bottom:1px solid #edf0f4;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{background:#f8fafc;color:#475569}
+#error{display:none;background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px}.small{font-size:12px}
+</style>
+</head>
+<body>
+<header><div style="max-width:1200px;margin:auto">
+<h1>Plan 2 Live Investment Dashboard</h1>
+<div class="muted">Automatic GitHub CSV reader • ₹20,000 capital • Manual broker execution</div>
+</div></header>
+<main>
+<div id="error"></div>
+<div class="grid">
+<div class="card"><div class="label">Capital</div><div class="value">₹20,000</div></div>
+<div class="card"><div class="label">Target Stocks</div><div class="value" id="count">—</div></div>
+<div class="card"><div class="label">Invested</div><div class="value" id="invested">—</div></div>
+<div class="card"><div class="label">Cash</div><div class="value" id="cash">—</div></div>
+<div class="card"><div class="label">Data Status</div><div class="value"><span class="status" id="status">Loading</span></div></div>
+</div>
+
+<section class="section">
+<h2>Current ₹20,000 Allocation</h2>
+<div class="muted">This table is loaded from the latest <b>capital_auto_allocation.csv</b> in GitHub.</div>
+<input id="search" placeholder="Search stock...">
+<div class="tablewrap"><table><thead><tr>
+<th>Stock</th><th>Price</th><th>Target</th><th>Shares</th><th>Invested</th><th>Weight</th>
+</tr></thead><tbody id="tbody"></tbody></table></div>
+</section>
+
+<section class="section">
+<h2>Signal History</h2>
+<div class="muted">Loaded from <b>signal_history.csv</b>. The latest rows are shown below.</div>
+<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Signal</th><th>Reason</th><th>Date</th></tr></thead>
+<tbody id="signals"></tbody></table></div>
+</section>
+
+<section class="section">
+<h2>Monthly Rebalance</h2>
+<p class="small">On each monthly run, the GitHub workflow generates a fresh Plan 2 portfolio and ₹20,000 whole-share allocation. New selections are BUY, existing selections are HOLD, and dropped holdings are SELL. This dashboard displays the generated result; it does not place broker orders.</p>
+<p class="small">Historical performance is not a guarantee of future returns.</p>
+</section>
+</main>
+
+<script>
+const BASE="https://raw.githubusercontent.com/balasankar041-lang/moment/main/";
+let allocation=[], signals=[];
+function parseCSV(s){
+ const rows=[]; let row=[], cell="", q=false;
+ for(let i=0;i<s.length;i++){const c=s[i],n=s[i+1];
+  if(c=='"' && q && n=='"'){cell+='"';i++;continue}
+  if(c=='"'){q=!q;continue}
+  if(c==','&&!q){row.push(cell);cell="";continue}
+  if((c=='\n'||c=='\r')&&!q){if(c=='\r'&&n=='\n')i++;row.push(cell);cell="";if(row.some(x=>x.trim()!==''))rows.push(row);row=[];continue}
+  cell+=c;
+ }
+ if(cell!==''||row.length){row.push(cell);rows.push(row)}
+ const h=rows.shift().map(x=>x.trim());
+ return rows.map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||"").trim()])));
+}
+const money=x=>"₹"+Number(x||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
+async function get(file){
+ const r=await fetch(BASE+file+"?t="+Date.now(),{cache:"no-store"});
+ if(!r.ok)throw new Error(file+" unavailable");
+ return parseCSV(await r.text());
+}
+function pick(o,names){for(const n of names){if(o[n]!==undefined)return o[n]}return ""}
+function render(q=""){
+ const a=allocation.filter(x=>pick(x,["Stock","Symbol","Ticker"]).toLowerCase().includes(q.toLowerCase()));
+ document.getElementById("tbody").innerHTML=a.map(x=>{
+  const stock=pick(x,["Stock","Symbol","Ticker"]), price=pick(x,["Live Price","Price","Current Price"]);
+  return `<tr><td><b>${stock}</b></td><td>${money(price)}</td><td>${money(pick(x,["Target Amount"]))}</td><td>${pick(x,["Shares"])}</td><td>${money(pick(x,["Invested"]))}</td><td>${Number(pick(x,["Weight % of Capital"])||0).toFixed(2)}%</td></tr>`;
+ }).join("");
+}
+function renderSignals(){
+ const rows=signals.slice(-50).reverse();
+ document.getElementById("signals").innerHTML=rows.map(x=>{
+  const stock=pick(x,["Stock","Symbol","Ticker"]), sig=pick(x,["Signal","Portfolio Signal"]);
+  return `<tr><td>${stock}</td><td>${sig}</td><td>${pick(x,["Reason","Signal Reason"])}</td><td>${pick(x,["Date","Run Date","Timestamp"])}</td></tr>`;
+ }).join("");
+}
+async function load(){
+ try{
+  allocation=await get("capital_auto_allocation.csv");
+  try{signals=await get("signal_history.csv")}catch(e){signals=[]}
+  const invested=allocation.reduce((s,x)=>s+Number(pick(x,["Invested"])||0),0);
+  document.getElementById("count").textContent=allocation.length;
+  document.getElementById("invested").textContent=money(invested);
+  document.getElementById("cash").textContent=money(20000-invested);
+  document.getElementById("status").textContent="LIVE";
+  render();renderSignals();
+ }catch(e){
+  const el=document.getElementById("error");el.style.display="block";
+  el.textContent="Dashboard could not load GitHub data: "+e.message;
+  document.getElementById("status").textContent="ERROR";
+ }
+}
+document.getElementById("search").addEventListener("input",e=>render(e.target.value));
+load();
+setInterval(load,5*60*1000);
+</script>
+</body>
+</html>
