@@ -390,7 +390,17 @@ function money(value){
 
 function num(value){
 
-    const n = Number(value || 0);
+    if(value === undefined || value === null) return "0";
+
+    const cleaned = String(value)
+        .replace(/₹/g,"")
+        .replace(/,/g,"")
+        .replace(/%/g,"")
+        .trim();
+
+    const n = Number(cleaned);
+
+    if(!Number.isFinite(n)) return "0";
 
     return n.toLocaleString(
         "en-IN",
@@ -587,8 +597,12 @@ function renderTop50(){
                     row,
                     [
                         "Momentum %",
+                        "Momentum %",
                         "Momentum",
-                        "Momentum Return"
+                        "Momentum Return",
+                        "Momentum Return %",
+                        "Momentum_Return",
+                        "Momentum_Return_%"
                     ]
                 );
 
@@ -735,8 +749,12 @@ function renderSector(){
                     row,
                     [
                         "Momentum %",
+                        "Momentum %",
                         "Momentum",
-                        "Momentum Return"
+                        "Momentum Return",
+                        "Momentum Return %",
+                        "Momentum_Return",
+                        "Momentum_Return_%"
                     ]
                 );
 
@@ -948,7 +966,10 @@ function renderSignals(){
                     row,
                     [
                         "Date",
-                        "date"
+                        "date",
+                        "Run Date",
+                        "Timestamp",
+                        "timestamp"
                     ]
                 );
 
@@ -966,7 +987,10 @@ function renderSignals(){
                 pick(
                     row,
                     [
-                        "Signal"
+                        "Signal",
+                        "Status",
+                        "Action",
+                        "Portfolio Signal"
                     ]
                 );
 
@@ -975,7 +999,10 @@ function renderSignals(){
                     row,
                     [
                         "Reason",
-                        "Message"
+                        "Message",
+                        "Signal Reason",
+                        "Explanation",
+                        "Why"
                     ]
                 );
 
@@ -1249,8 +1276,12 @@ function calculateAutoAllocation(stocks, capital){
                 momentum:
                     pick(candidate.original,[
                         "Momentum %",
+                        "Momentum %",
                         "Momentum",
-                        "Momentum Return"
+                        "Momentum Return",
+                        "Momentum Return %",
+                        "Momentum_Return",
+                        "Momentum_Return_%"
                     ]),
                 id:
                     pick(candidate.original,[
