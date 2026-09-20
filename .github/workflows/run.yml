@@ -69,6 +69,7 @@ jobs:
             echo "No live dashboard changes."
           else
             git commit -m "Update Plan 2 live dashboard"
+            git pull --rebase origin main
             git push
           fi
 
@@ -89,6 +90,7 @@ jobs:
             echo "No capital allocation changes."
           else
             git commit -m "Update ₹20,000 capital allocation"
+            git pull --rebase origin main
             git push
           fi
 
