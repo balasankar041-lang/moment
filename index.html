@@ -390,21 +390,54 @@ function money(value){
 
 function num(value){
 
-    if(value === undefined || value === null) return "0";
-
-    const cleaned = String(value)
-        .replace(/₹/g,"")
-        .replace(/,/g,"")
-        .replace(/%/g,"")
-        .trim();
-
-    const n = Number(cleaned);
+    const n = Number(
+        String(value ?? "")
+            .replace(/₹/g,"")
+            .replace(/,/g,"")
+            .replace(/%/g,"")
+            .trim()
+    );
 
     if(!Number.isFinite(n)) return "0";
 
-    return n.toLocaleString("en-IN", {
+    return n.toLocaleString(
+        "en-IN",
+        {
+            maximumFractionDigits:2
+        }
+    );
+}
+
+function momentumPercent(row){
+
+    const raw = pick(row,[
+        "Momentum 12-2",
+        "Momentum %",
+        "Momentum",
+        "Momentum Return",
+        "Momentum Return %",
+        "Momentum_Return",
+        "Momentum_Return_%"
+    ]);
+
+    if(raw === "" || raw === null || raw === undefined) return "";
+
+    const text = String(raw)
+        .replace(/%/g,"")
+        .replace(/,/g,"")
+        .trim();
+
+    const n = Number(text);
+
+    if(!Number.isFinite(n)) return "";
+
+    // live_plan2_top50.csv stores Momentum 12-2 as decimal return:
+    // 0.661609 -> 66.1609%
+    const percent = text.includes("%") ? n : (Math.abs(n) <= 2 ? n * 100 : n);
+
+    return percent.toLocaleString("en-IN",{
         maximumFractionDigits:2
-    });
+    }) + "%";
 }
 
 
@@ -419,24 +452,6 @@ function pick(row,names){
         ){
 
             return row[name];
-        }
-    }
-
-    return "";
-}
-
-
-function pickContains(row, terms){
-
-    const keys = Object.keys(row || {});
-
-    for(const key of keys){
-        const k = String(key).toLowerCase().replace(/[_-]+/g," ");
-        if(terms.some(term => k.includes(term.toLowerCase()))){
-            const value = row[key];
-            if(value !== undefined && value !== null && String(value).trim() !== ""){
-                return value;
-            }
         }
     }
 
@@ -607,19 +622,7 @@ function renderTop50(){
                     ]
                 );
 
-            const momentum =
-                pick(
-                    row,
-                    [
-                        "Momentum %",
-                        "Momentum",
-                        "Momentum Return",
-                        "Momentum Return %",
-                        "Momentum_Return",
-                        "Momentum_Return_%"
-                    ]
-                ) ||
-                pickContains(row, ["momentum"]);
+            const momentum = momentumPercent(row);
 
             const id =
                 pick(
@@ -645,7 +648,7 @@ function renderTop50(){
                 <td>${rank}</td>
                 <td><b>${stock}</b></td>
                 <td>${money(price)}</td>
-                <td>${num(momentum)}%</td>
+                <td>${momentum}</td>
                 <td>${num(id)}</td>
                 <td>${signal}</td>
                 <td>2.00%</td>
@@ -759,19 +762,7 @@ function renderSector(){
                     ]
                 );
 
-            const momentum =
-                pick(
-                    row,
-                    [
-                        "Momentum %",
-                        "Momentum",
-                        "Momentum Return",
-                        "Momentum Return %",
-                        "Momentum_Return",
-                        "Momentum_Return_%"
-                    ]
-                ) ||
-                pickContains(row, ["momentum"]);
+            const momentum = momentumPercent(row);
 
             const id =
                 pick(
@@ -800,7 +791,7 @@ function renderSector(){
                 <td>${sectorRank}</td>
                 <td>${sectorCount}</td>
                 <td>${money(price)}</td>
-                <td>${num(momentum)}%</td>
+                <td>${momentum}</td>
                 <td>${num(id)}</td>
                 <td>${signal}</td>
             </tr>
@@ -981,13 +972,9 @@ function renderSignals(){
                     row,
                     [
                         "Date",
-                        "date",
-                        "Run Date",
-                        "Timestamp",
-                        "timestamp"
+                        "date"
                     ]
-                ) ||
-                pickContains(row, ["date", "timestamp"]);
+                );
 
             const stock =
                 pick(
@@ -1003,26 +990,18 @@ function renderSignals(){
                 pick(
                     row,
                     [
-                        "Signal",
-                        "Status",
-                        "Action",
-                        "Portfolio Signal"
+                        "Signal"
                     ]
-                ) ||
-                pickContains(row, ["signal", "status", "action"]);
+                );
 
             const reason =
                 pick(
                     row,
                     [
                         "Reason",
-                        "Message",
-                        "Signal Reason",
-                        "Explanation",
-                        "Why"
+                        "Message"
                     ]
-                ) ||
-                pickContains(row, ["reason", "message", "explanation", "why"]);
+                );
 
             return `
             <tr>
