@@ -40,7 +40,7 @@ jobs:
       - name: Run live Plan 2 screener
         run: python main.py
 
-      - name: Create sector-wise Plan 2 Top 50
+      - name: Create sector-wise Plan  Top 50
         run: python sector_wise_top50.py
 
       - name: Save live dashboard data
