@@ -996,7 +996,7 @@ function renderSignals(){
                     ]
                 );
 
-            const reason =
+            let reason =
                 pick(
                     row,
                     [
@@ -1006,6 +1006,32 @@ function renderSignals(){
                         "Message"
                     ]
                 );
+
+            // signal_history.csv currently does not populate Buy Reason
+            // for BUY/HOLD rows, so provide a factual fallback from the
+            // recorded signal state instead of leaving the dashboard blank.
+            if (!reason) {
+                const momentumRank = pick(row, ["Momentum Rank"]);
+                const idRank = pick(row, ["ID Rank"]);
+
+                if (signal === "BUY") {
+                    reason = "New entry into Plan 2 Top 50";
+                    if (momentumRank && idRank) {
+                        reason += ` (Momentum Rank ${momentumRank}, ID Rank ${idRank})`;
+                    }
+                } else if (signal === "HOLD") {
+                    reason = "Remains in Plan 2 Top 50";
+                    if (momentumRank && idRank) {
+                        reason += ` (Momentum Rank ${momentumRank}, ID Rank ${idRank})`;
+                    }
+                } else if (signal === "SELL") {
+                    reason = "Dropped from Plan 2 Top 50";
+                } else if (signal === "ID FILTER") {
+                    reason = "Inside Top 100, but outside final Top 50";
+                } else if (signal === "WAIT") {
+                    reason = "Outside Plan 2 Top 100";
+                }
+            }
 
             return `
             <tr>
