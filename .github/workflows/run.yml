@@ -43,6 +43,9 @@ jobs:
       - name: Run Advanced Market Intelligence
         run: python advanced_market_intelligence.py
 
+      - name: Run Full AI Stock Research
+        run: python stock_research_engine.py
+
       - name: Create sector-wise Plan  Top 50
         run: python sector_wise_top50.py
 
@@ -59,6 +62,8 @@ jobs:
           git add signal_history.csv
           git add advanced_market_intelligence.csv
           git add market_intelligence_summary.csv
+          git add stock_research_ai.csv
+          git add stock_research_sources.csv
           git add ipo_watchlist.csv 2>/dev/null || true
 
           if [ -f ipo_auto_discovered.csv ]; then
@@ -120,6 +125,8 @@ jobs:
           test -f capital_auto_allocation.csv
           test -f advanced_market_intelligence.csv
           test -f market_intelligence_summary.csv
+          test -f stock_research_ai.csv
+          test -f stock_research_sources.csv
 
           echo "All required outputs are present."
 
