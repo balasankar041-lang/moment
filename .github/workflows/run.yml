@@ -56,7 +56,7 @@ jobs:
           git add live_plan2_top100.csv
           git add live_plan2_top50.csv
           git add sector_wise_top50.csv
-          git add signal_history.cs
+          git add signal_history.csv
           git add advanced_market_intelligence.csv
           git add market_intelligence_summary.csv
           git add ipo_watchlist.csv 2>/dev/null || true
