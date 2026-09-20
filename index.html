@@ -221,6 +221,67 @@ No stocks added or removed • Original Plan 2 ranking unchanged
 </div>
 
 
+
+<!-- AUTOMATIC CAPITAL ALLOCATION -->
+
+<h2>Automatic Capital Allocation</h2>
+
+<div class="card">
+
+<div class="note">
+Enter your investment amount. The system will automatically select
+stocks from the current Plan 2 Top 50 using Plan 2 ranking,
+sector diversification and whole-share allocation.
+</div>
+
+<input
+    id="autoCapital"
+    type="number"
+    min="1"
+    step="100"
+    value="20000"
+    placeholder="Enter investment amount"
+>
+
+<button
+    onclick="runAutoAllocation()"
+    style="
+        padding:10px 18px;
+        border:0;
+        border-radius:6px;
+        cursor:pointer;
+        font-weight:bold;
+    "
+>
+    AUTO ALLOCATE
+</button>
+
+<div id="autoSummary" style="margin-top:15px;"></div>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Plan 2 Rank</th>
+<th>Stock</th>
+<th>Sector</th>
+<th>Price</th>
+<th>Shares</th>
+<th>Invested</th>
+<th>Weight</th>
+</tr>
+</thead>
+
+<tbody id="autoAllocationBody"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
 <!-- PRACTICAL ALLOCATION -->
 
 <h2>₹20,000 Practical Allocation</h2>
@@ -931,6 +992,456 @@ function renderSignals(){
 }
 
 
+
+/* ==============================
+   AUTOMATIC CAPITAL ALLOCATION
+   ============================== */
+
+function calculateAutoAllocation(stocks, capital){
+
+    capital = Number(capital);
+
+    if(!Number.isFinite(capital) || capital <= 0){
+        return {
+            rows: [],
+            invested: 0,
+            cash: capital || 0,
+            stockCount: 0,
+            maxPerStock: 0,
+            targetStocks: 0
+        };
+    }
+
+    const candidates = stocks
+        .map((row,index)=>{
+
+            const price = Number(
+                pick(row,[
+                    "Live Price",
+                    "Price",
+                    "Current Price"
+                ]) || 0
+            );
+
+            const rank = Number(
+                pick(row,[
+                    "Rank",
+                    "ID Rank",
+                    "Portfolio Rank"
+                ]) || index + 1
+            );
+
+            const sector = String(
+                pick(row,["Sector"]) || "Other"
+            ).trim();
+
+            const stock = String(
+                pick(row,[
+                    "Stock",
+                    "Symbol",
+                    "Ticker"
+                ]) || ""
+            ).trim();
+
+            return {
+                original: row,
+                stock,
+                sector,
+                price,
+                rank
+            };
+
+        })
+        .filter(x => x.stock && x.price > 0)
+        .sort((a,b) => a.rank - b.rank);
+
+
+    let targetStocks;
+
+    if(capital < 10000){
+        targetStocks = 5;
+    }
+    else if(capital < 20000){
+        targetStocks = 8;
+    }
+    else if(capital < 30000){
+        targetStocks = 10;
+    }
+    else if(capital < 50000){
+        targetStocks = 12;
+    }
+    else if(capital < 100000){
+        targetStocks = 15;
+    }
+    else{
+        targetStocks = 20;
+    }
+
+
+    const maxPerStock = Math.min(
+        5000,
+        Math.max(
+            1000,
+            capital * 0.075
+        )
+    );
+
+
+    const selected = [];
+    const sectorCount = {};
+
+    let invested = 0;
+
+
+    for(const candidate of candidates){
+
+        if(selected.length >= targetStocks){
+            break;
+        }
+
+        const {
+            stock,
+            sector,
+            price,
+            rank,
+            original
+        } = candidate;
+
+        if((sectorCount[sector] || 0) >= 3){
+            continue;
+        }
+
+        const remaining = capital - invested;
+
+        if(remaining < price){
+            continue;
+        }
+
+        const allowed = Math.min(
+            maxPerStock,
+            remaining
+        );
+
+        const shares = Math.floor(
+            allowed / price
+        );
+
+        if(shares < 1){
+            continue;
+        }
+
+        const amount = Number(
+            (shares * price).toFixed(2)
+        );
+
+        if(
+            amount <= 0 ||
+            amount > remaining
+        ){
+            continue;
+        }
+
+        selected.push({
+            rank,
+            stock,
+            sector,
+            price,
+            shares,
+            invested: amount,
+            weight: 0,
+            momentum:
+                pick(original,[
+                    "Momentum %",
+                    "Momentum",
+                    "Momentum Return"
+                ]),
+            id:
+                pick(original,[
+                    "ID",
+                    "Id",
+                    "ID Score"
+                ]),
+            signal:
+                pick(original,[
+                    "Signal",
+                    "Portfolio Signal"
+                ])
+        });
+
+        invested += amount;
+
+        sectorCount[sector] =
+            (sectorCount[sector] || 0) + 1;
+    }
+
+
+    /*
+    Second pass: fill remaining target slots
+    while preserving Plan 2 rank and the
+    maximum 3 stocks per sector.
+    */
+
+    if(
+        invested < capital &&
+        selected.length < targetStocks
+    ){
+
+        for(const candidate of candidates){
+
+            if(selected.length >= targetStocks){
+                break;
+            }
+
+            const alreadySelected =
+                selected.some(
+                    x => x.stock === candidate.stock
+                );
+
+            if(alreadySelected){
+                continue;
+            }
+
+            const remaining = capital - invested;
+
+            if(remaining < candidate.price){
+                continue;
+            }
+
+            if(
+                (sectorCount[candidate.sector] || 0)
+                >= 3
+            ){
+                continue;
+            }
+
+            const allowed = Math.min(
+                maxPerStock,
+                remaining
+            );
+
+            const shares = Math.floor(
+                allowed / candidate.price
+            );
+
+            if(shares < 1){
+                continue;
+            }
+
+            const amount = Number(
+                (shares * candidate.price).toFixed(2)
+            );
+
+            if(
+                amount <= 0 ||
+                amount > remaining
+            ){
+                continue;
+            }
+
+            selected.push({
+                rank: candidate.rank,
+                stock: candidate.stock,
+                sector: candidate.sector,
+                price: candidate.price,
+                shares,
+                invested: amount,
+                weight: 0,
+                momentum:
+                    pick(candidate.original,[
+                        "Momentum %",
+                        "Momentum",
+                        "Momentum Return"
+                    ]),
+                id:
+                    pick(candidate.original,[
+                        "ID",
+                        "Id",
+                        "ID Score"
+                    ]),
+                signal:
+                    pick(candidate.original,[
+                        "Signal",
+                        "Portfolio Signal"
+                    ])
+            });
+
+            invested += amount;
+
+            sectorCount[candidate.sector] =
+                (sectorCount[candidate.sector] || 0) + 1;
+        }
+    }
+
+
+    selected.sort(
+        (a,b) => a.rank - b.rank
+    );
+
+
+    selected.forEach(row => {
+
+        row.weight = Number(
+            (
+                row.invested /
+                capital *
+                100
+            ).toFixed(2)
+        );
+
+    });
+
+
+    return {
+        rows: selected,
+        invested: Number(invested.toFixed(2)),
+        cash: Number(
+            (capital - invested).toFixed(2)
+        ),
+        stockCount: selected.length,
+        maxPerStock: Number(
+            maxPerStock.toFixed(2)
+        ),
+        targetStocks
+    };
+}
+
+
+function runAutoAllocation(){
+
+    const capital = Number(
+        document
+        .getElementById("autoCapital")
+        .value
+    );
+
+    const summary =
+        document.getElementById(
+            "autoSummary"
+        );
+
+    const body =
+        document.getElementById(
+            "autoAllocationBody"
+        );
+
+
+    if(!Number.isFinite(capital) || capital <= 0){
+
+        summary.innerHTML =
+            "Enter a valid investment amount.";
+
+        body.innerHTML = "";
+
+        return;
+    }
+
+
+    if(!top50 || top50.length === 0){
+
+        summary.innerHTML =
+            "Plan 2 Top 50 data is not available.";
+
+        body.innerHTML = "";
+
+        return;
+    }
+
+
+    const sectorMap = {};
+
+    sectorTop50.forEach(row => {
+
+        const stock = String(
+            pick(row,[
+                "Stock",
+                "Symbol",
+                "Ticker"
+            ]) || ""
+        ).trim().toUpperCase();
+
+        if(stock){
+
+            sectorMap[stock] =
+                pick(row,["Sector"]) ||
+                "Other";
+        }
+    });
+
+
+    const stocks = top50.map(row => {
+
+        const stock = String(
+            pick(row,[
+                "Stock",
+                "Symbol",
+                "Ticker"
+            ]) || ""
+        ).trim();
+
+        return {
+            ...row,
+            Sector:
+                sectorMap[stock.toUpperCase()] ||
+                "Other"
+        };
+    });
+
+
+    const result =
+        calculateAutoAllocation(
+            stocks,
+            capital
+        );
+
+
+    summary.innerHTML = `
+        <b>Capital:</b>
+        ${money(capital)}
+        &nbsp;&nbsp;
+
+        <b>Target Stocks:</b>
+        ${result.targetStocks}
+        &nbsp;&nbsp;
+
+        <b>Selected:</b>
+        ${result.stockCount}
+        &nbsp;&nbsp;
+
+        <b>Invested:</b>
+        ${money(result.invested)}
+        &nbsp;&nbsp;
+
+        <b>Cash:</b>
+        ${money(result.cash)}
+    `;
+
+
+    body.innerHTML =
+        result.rows.map(row => {
+
+            return `
+            <tr>
+                <td>${row.rank}</td>
+                <td><b>${row.stock}</b></td>
+                <td>${row.sector}</td>
+                <td>${money(row.price)}</td>
+                <td>${row.shares}</td>
+                <td>${money(row.invested)}</td>
+                <td>${num(row.weight)}%</td>
+            </tr>
+            `;
+
+        }).join("");
+
+
+    if(result.rows.length === 0){
+
+        summary.innerHTML +=
+            "<br>No affordable stocks found.";
+    }
+}
+
+
 async function loadDashboard(){
 
     try{
@@ -959,6 +1470,7 @@ async function loadDashboard(){
         renderSector();
         renderAllocation();
         renderSignals();
+        runAutoAllocation();
 
     }
     catch(error){
