@@ -207,17 +207,19 @@ def classify():
     if not missing.empty:
         missing[["Stock", "_symbol"]].rename(
             columns={"_symbol": "Symbol"}
+        ).assign(
+            **{
+                "Fallback Sector": "Miscellaneous",
+                "Reason": "Zerodha sector mapping unavailable",
+            }
         ).to_csv(MISSING_FILE, index=False)
 
-        print("\nUNMATCHED TOP 50 STOCKS:")
+        print("\nUNMATCHED TOP 50 STOCKS — using Miscellaneous fallback:")
         print(
             missing[["Stock", "_symbol"]].to_string(index=False)
         )
 
-        raise RuntimeError(
-            f"{len(missing)} Top 50 stocks have no Zerodha sector mapping. "
-            f"See {MISSING_FILE}. No incomplete sector file published."
-        )
+        top.loc[top["Sector"].isna(), "Sector"] = "Miscellaneous"
 
     # Audit against the Nifty 500 universe when available.
     if universe:
@@ -251,7 +253,7 @@ def classify():
     print(f"\nWrote {OUTPUT_FILE}: {len(top)} stocks")
     print("\nSector counts:")
     print(top["Sector"].value_counts().to_string())
-    print("\nNo Top 50 stock is classified as Other.")
+    print("\nNo Top 50 stock is dropped. Unmapped stocks use Miscellaneous fallback.")
 
 
 if __name__ == "__main__":
