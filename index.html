@@ -402,12 +402,9 @@ function num(value){
 
     if(!Number.isFinite(n)) return "0";
 
-    return n.toLocaleString(
-        "en-IN",
-        {
-            maximumFractionDigits:2
-        }
-    );
+    return n.toLocaleString("en-IN", {
+        maximumFractionDigits:2
+    });
 }
 
 
@@ -422,6 +419,24 @@ function pick(row,names){
         ){
 
             return row[name];
+        }
+    }
+
+    return "";
+}
+
+
+function pickContains(row, terms){
+
+    const keys = Object.keys(row || {});
+
+    for(const key of keys){
+        const k = String(key).toLowerCase().replace(/[_-]+/g," ");
+        if(terms.some(term => k.includes(term.toLowerCase()))){
+            const value = row[key];
+            if(value !== undefined && value !== null && String(value).trim() !== ""){
+                return value;
+            }
         }
     }
 
@@ -597,14 +612,14 @@ function renderTop50(){
                     row,
                     [
                         "Momentum %",
-                        "Momentum %",
                         "Momentum",
                         "Momentum Return",
                         "Momentum Return %",
                         "Momentum_Return",
                         "Momentum_Return_%"
                     ]
-                );
+                ) ||
+                pickContains(row, ["momentum"]);
 
             const id =
                 pick(
@@ -749,14 +764,14 @@ function renderSector(){
                     row,
                     [
                         "Momentum %",
-                        "Momentum %",
                         "Momentum",
                         "Momentum Return",
                         "Momentum Return %",
                         "Momentum_Return",
                         "Momentum_Return_%"
                     ]
-                );
+                ) ||
+                pickContains(row, ["momentum"]);
 
             const id =
                 pick(
@@ -971,7 +986,8 @@ function renderSignals(){
                         "Timestamp",
                         "timestamp"
                     ]
-                );
+                ) ||
+                pickContains(row, ["date", "timestamp"]);
 
             const stock =
                 pick(
@@ -992,7 +1008,8 @@ function renderSignals(){
                         "Action",
                         "Portfolio Signal"
                     ]
-                );
+                ) ||
+                pickContains(row, ["signal", "status", "action"]);
 
             const reason =
                 pick(
@@ -1004,7 +1021,8 @@ function renderSignals(){
                         "Explanation",
                         "Why"
                     ]
-                );
+                ) ||
+                pickContains(row, ["reason", "message", "explanation", "why"]);
 
             return `
             <tr>
@@ -1276,12 +1294,8 @@ function calculateAutoAllocation(stocks, capital){
                 momentum:
                     pick(candidate.original,[
                         "Momentum %",
-                        "Momentum %",
                         "Momentum",
-                        "Momentum Return",
-                        "Momentum Return %",
-                        "Momentum_Return",
-                        "Momentum_Return_%"
+                        "Momentum Return"
                     ]),
                 id:
                     pick(candidate.original,[
