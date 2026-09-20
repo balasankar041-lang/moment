@@ -116,7 +116,10 @@ def fetch_sector(session, sector_name, slug):
             last_error = exc
             time.sleep(2 * (attempt + 1))
 
-    raise RuntimeError(f"{sector_name}: {last_error}")
+    print(f"WARNING: {sector_name}: no NSE symbols extracted; skipping this sector page.")
+
+
+    return []
 
 
 def load_top50():
