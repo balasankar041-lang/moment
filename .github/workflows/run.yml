@@ -40,6 +40,9 @@ jobs:
       - name: Run live Plan 2 screener
         run: python main.py
 
+      - name: Run Advanced Market Intelligence
+        run: python advanced_market_intelligence.py
+
       - name: Create sector-wise Plan  Top 50
         run: python sector_wise_top50.py
 
@@ -53,7 +56,9 @@ jobs:
           git add live_plan2_top100.csv
           git add live_plan2_top50.csv
           git add sector_wise_top50.csv
-          git add signal_history.csv
+          git add signal_history.cs
+          git add advanced_market_intelligence.csv
+          git add market_intelligence_summary.csv
           git add ipo_watchlist.csv 2>/dev/null || true
 
           if [ -f ipo_auto_discovered.csv ]; then
@@ -113,6 +118,8 @@ jobs:
           test -f ipo_watch.csv
           test -f capital_execution_test.csv
           test -f capital_auto_allocation.csv
+          test -f advanced_market_intelligence.csv
+          test -f market_intelligence_summary.csv
 
           echo "All required outputs are present."
 
