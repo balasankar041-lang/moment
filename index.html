@@ -987,7 +987,7 @@ function renderSignals(){
                     ]
                 );
 
-            const signal =
+            const signalRaw =
                 pick(
                     row,
                     [
@@ -995,6 +995,10 @@ function renderSignals(){
                         "Signal"
                     ]
                 );
+
+            const signal = String(signalRaw ?? "")
+                .trim()
+                .toUpperCase();
 
             let reason =
                 pick(
@@ -1006,6 +1010,8 @@ function renderSignals(){
                         "Message"
                     ]
                 );
+
+            reason = String(reason ?? "").trim();
 
             // signal_history.csv currently does not populate Buy Reason
             // for BUY/HOLD rows, so provide a factual fallback from the
@@ -1030,6 +1036,8 @@ function renderSignals(){
                     reason = "Inside Top 100, but outside final Top 50";
                 } else if (signal === "WAIT") {
                     reason = "Outside Plan 2 Top 100";
+                } else {
+                    reason = "Signal recorded; no additional reason available";
                 }
             }
 
