@@ -143,14 +143,19 @@ def main():
                     2
                 ),
 
-                "Momentum %": to_num(
-                    pick(
-                        r,
-                        [
-                            "Momentum %",
-                            "Momentum",
-                            "Momentum Return"
-                        ]
+                "Momentum %": (
+                    lambda m: round(m * 100, 2) if abs(m) <= 2 else round(m, 2)
+                )(
+                    to_num(
+                        pick(
+                            r,
+                            [
+                                "Momentum 12-2",
+                                "Momentum %",
+                                "Momentum",
+                                "Momentum Return"
+                            ]
+                        )
                     )
                 ),
 
