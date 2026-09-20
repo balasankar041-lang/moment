@@ -164,11 +164,14 @@ rows = []
 
 for _, r in df.iterrows():
     symbol = stock_name(r)
-    momentum = get(r, "Momentum %", "Momentum", "Momentum_Return")
+    momentum = get(r, "Momentum 12-2", "Momentum %", "Momentum", "Momentum_Return")
+    # live_plan2_top50.csv stores Momentum 12-2 as a decimal return (e.g. 0.6616 = 66.16%).
+    if np.isfinite(momentum) and -2 <= momentum <= 2:
+        momentum *= 100.0
     ident = get(r, "ID", "Id")
     mrank = get(r, "Momentum Rank", "Momentum_Rank", "Rank")
     idrank = get(r, "ID Rank", "ID_Rank")
-    signal = str(r.get("Signal", "HOLD")).upper()
+    signal = str(r.get("Portfolio Signal", r.get("Signal", "HOLD"))).upper()
     sector = sector_map.get(symbol, "Miscellaneous")
 
     pc = price_context(symbol)
