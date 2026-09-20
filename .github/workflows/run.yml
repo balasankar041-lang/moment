@@ -40,21 +40,30 @@ jobs:
       - name: Run live Plan 2 screener
         run: python main.py
 
-      - name: Save signal and IPO history
+      - name: Create sector-wise Plan 2 Top 50
+        run: python sector_wise_top50.py
+
+      - name: Save live dashboard data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@github.com"
 
-          git add signal_history.csv ipo_watchlist.csv 2>/dev/null || true
+          git add ranking.csv
+          git add live_plan2_ranking.csv
+          git add live_plan2_top100.csv
+          git add live_plan2_top50.csv
+          git add sector_wise_top50.csv
+          git add signal_history.csv
+          git add ipo_watchlist.csv 2>/dev/null || true
 
           if [ -f ipo_auto_discovered.csv ]; then
             git add ipo_auto_discovered.csv
           fi
 
           if git diff --cached --quiet; then
-            echo "No history changes to commit."
+            echo "No live dashboard changes."
           else
-            git commit -m "Update Plan 2 signals and IPO watch"
+            git commit -m "Update Plan 2 live dashboard"
             git push
           fi
 
@@ -69,7 +78,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@github.com"
 
-          git add capital_auto_allocation.csv capital_execution_test.csv
+          git add capital_auto_allocation.csv
+          git add capital_execution_test.csv
 
           if git diff --cached --quiet; then
             echo "No capital allocation changes."
@@ -99,10 +109,12 @@ jobs:
           test -f live_plan2_ranking.csv
           test -f live_plan2_top100.csv
           test -f live_plan2_top50.csv
+          test -f sector_wise_top50.csv
           test -f ipo_watch.csv
           test -f capital_execution_test.csv
           test -f capital_auto_allocation.csv
-          echo "Required outputs are present."
+
+          echo "All required outputs are present."
 
       - name: Upload complete results
         uses: actions/upload-artifact@v4
