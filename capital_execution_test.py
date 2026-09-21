@@ -16,7 +16,7 @@ import pandas as pd
 
 CAPITAL = 20000.0
 MAX_PER_STOCK = 1500.0
-TARGET_STOCKS = 10
+TARGET_STOCKS = 12
 
 TOP50_FILE = Path("live_plan2_top50.csv")
 OUTPUT_FILE = Path("capital_auto_allocation.csv")
