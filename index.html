@@ -1605,6 +1605,10 @@ function renderAI(){
 }
 function renderAISummary(){
     const r=aiSummary[0]||{};
+    const pct = (v) => {
+        const n = Number(String(v ?? "").replace(/[^0-9.+-]/g,""));
+        return Number.isFinite(n) ? n.toFixed(2) : "N/A";
+    };
     const m20 = Number(String(aiPick(r,["Market 20D %"])||"").replace(/[^0-9.+-]/g,""));
     let view = aiPick(r,["Market View","Overall Market View","View"]);
     if(!view){
@@ -1619,7 +1623,7 @@ function renderAISummary(){
     const d20 = aiPick(r,["Market 20D %"]);
     const news = aiPick(r,["News Evidence Stocks"]) || "0";
     document.getElementById("aiMarketSummary").textContent =
-        `${proxy} | 1D: ${d1 || "N/A"}% | 5D: ${d5 || "N/A"}% | 20D: ${d20 || "N/A"}% | Stocks with news evidence: ${news}`;
+        `${proxy} | 1D: ${pct(d1)}% | 5D: ${pct(d5)}% | 20D: ${pct(d20)}% | Stocks with news evidence: ${news}`;
 }
 async function loadAI(){
     try{
