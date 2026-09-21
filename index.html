@@ -363,6 +363,77 @@ Orders are not automatically sent to a broker.
 </div>
 
 
+
+<!-- ADVANCED MARKET INTELLIGENCE -->
+
+<h2>AI / Market Intelligence</h2>
+
+<div class="note">
+Evidence-based market intelligence • Plan 2 ranking unchanged • AI layer does not change allocation
+</div>
+
+<div class="summary">
+
+<div class="box">
+Stocks Analysed
+<b id="aiCount">0</b>
+</div>
+
+<div class="box">
+Risk Flags
+<b id="aiRiskCount">0</b>
+</div>
+
+<div class="box">
+Market View
+<b id="aiMarketView">Loading...</b>
+</div>
+
+</div>
+
+<div class="card">
+
+<div class="note"><b>Market Summary</b></div>
+<div id="aiMarketSummary" style="margin-top:8px;white-space:normal">
+Loading market intelligence...
+</div>
+
+<input
+    id="aiSearch"
+    type="text"
+    placeholder="Search AI stock analysis..."
+    onkeyup="renderAI()"
+>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+<tr>
+<th>Rank</th>
+<th>Stock</th>
+<th>AI View</th>
+<th>Why Selected</th>
+<th>Risk Flags</th>
+<th>Confidence</th>
+<th>Explanation</th>
+</tr>
+</thead>
+
+<tbody id="aiBody">
+<tr>
+<td colspan="7">Loading AI / Market Intelligence...</td>
+</tr>
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
 <script>
 
 const BASE = "./";
