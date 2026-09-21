@@ -365,8 +365,7 @@ Orders are not automatically sent to a broker.
 
 <script>
 
-const BASE =
-"https://raw.githubusercontent.com/balasankar041-lang/moment/main/";
+const BASE = "./";
 
 let top50 = [];
 let sectorTop50 = [];
@@ -1560,6 +1559,13 @@ async function loadAI(){
     }
 }
 
+function renderAIUnavailable(){
+    const el = document.getElementById("aiBody");
+    if (el) {
+        el.innerHTML = '<tr><td colspan="7">AI/Market Intelligence data is temporarily unavailable. Plan 2 dashboard remains active.</td></tr>';
+    }
+}
+
 async function loadDashboard(){
 
     try{
@@ -1584,13 +1590,20 @@ async function loadDashboard(){
                 "signal_history.csv"
             );
 
-        await loadAI();
-
+        // Core dashboard must render even if optional AI files are unavailable.
         renderTop50();
         renderSector();
         renderAllocation();
         renderSignals();
         runAutoAllocation();
+
+        try {
+            await loadAI();
+            renderAI();
+        } catch (aiError) {
+            console.warn("Optional AI data unavailable:", aiError);
+            renderAIUnavailable();
+        }
 
     }
     catch(error){
