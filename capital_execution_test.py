@@ -15,12 +15,28 @@ import math
 import pandas as pd
 
 CAPITAL = 20000.0
-MAX_PER_STOCK = 1500.0
-TARGET_STOCKS = 12
 
 TOP50_FILE = Path("live_plan2_top50.csv")
 OUTPUT_FILE = Path("capital_auto_allocation.csv")
 
+
+def allocation_rules(capital):
+    if 1000 <= capital <= 2999:
+        return 2, 1000.0
+    if 3000 <= capital <= 4999:
+        return 3, 1250.0
+    if 5000 <= capital <= 9999:
+        return 5, 1500.0
+    if 10000 <= capital <= 19999:
+        return 8, 2000.0
+    if 20000 <= capital <= 29999:
+        return 10, 2500.0
+    if capital >= 30000:
+        return 12, 3000.0
+    return 0, 0.0
+
+
+TARGET_STOCKS, MAX_PER_STOCK = allocation_rules(CAPITAL)
 
 def pick(row, names):
     for name in names:
@@ -143,19 +159,14 @@ def main():
                     2
                 ),
 
-                "Momentum %": (
-                    lambda m: round(m * 100, 2) if abs(m) <= 2 else round(m, 2)
-                )(
-                    to_num(
-                        pick(
-                            r,
-                            [
-                                "Momentum 12-2",
-                                "Momentum %",
-                                "Momentum",
-                                "Momentum Return"
-                            ]
-                        )
+                "Momentum %": to_num(
+                    pick(
+                        r,
+                        [
+                            "Momentum %",
+                            "Momentum",
+                            "Momentum Return"
+                        ]
                     )
                 ),
 
@@ -225,7 +236,7 @@ def main():
 
     if len(out) > TARGET_STOCKS:
         raise RuntimeError(
-            "More than 10 stocks selected"
+            "More than TARGET_STOCKS stocks selected"
         )
 
     if not out.empty:
@@ -236,7 +247,7 @@ def main():
         ).any():
 
             raise RuntimeError(
-                "A stock exceeded ₹1,500"
+                "A stock exceeded MAX_PER_STOCK"
             )
 
         if (
@@ -245,7 +256,7 @@ def main():
         ):
 
             raise RuntimeError(
-                "Allocation exceeded ₹20,000"
+                "Allocation exceeded CAPITAL"
             )
 
     out.to_csv(
