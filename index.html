@@ -1595,7 +1595,7 @@ function renderAI(){
         <td>${aiPick(r,["Why Selected","Selection Reason"])||"No selection explanation available"}</td>
         <td>${aiPick(r,["Risk Flags","Risk Flag","Risk"])||"None recorded"}</td>
         <td>${aiPick(r,["Evidence Confidence","Confidence"])||"—"}</td>
-        <td style="white-space:normal;min-width:280px">${aiPick(r,["AI Explanation","Explanation","Market Explanation"])||"No additional evidence available"}</td>
+        <td style="white-space:normal;min-width:280px">${aiPick(r,["AI-Style Explanation","AI Explanation","Explanation","Market Explanation"])||"No additional evidence available"}</td>
         </tr>`).join("");
     document.getElementById("aiCount").textContent=aiData.length;
     document.getElementById("aiRiskCount").textContent=aiData.filter(r=>{
@@ -1605,11 +1605,21 @@ function renderAI(){
 }
 function renderAISummary(){
     const r=aiSummary[0]||{};
-    document.getElementById("aiMarketView").textContent=
-        aiPick(r,["Market View","Overall Market View","View"])||"Available";
-    document.getElementById("aiMarketSummary").textContent=
-        aiPick(r,["Summary","Market Summary","Explanation","Market Explanation"])||
-        "Market-level intelligence summary is not available in the current run.";
+    const m20 = Number(String(aiPick(r,["Market 20D %"])||"").replace(/[^0-9.+-]/g,""));
+    let view = aiPick(r,["Market View","Overall Market View","View"]);
+    if(!view){
+        if(Number.isFinite(m20)) view = m20 > 3 ? "Positive market context" : (m20 < -3 ? "Weak market context" : "Mixed market context");
+        else view = "Available";
+    }
+    document.getElementById("aiMarketView").textContent=view;
+
+    const proxy = aiPick(r,["Market Proxy"]) || "Market proxy unavailable";
+    const d1 = aiPick(r,["Market 1D %"]);
+    const d5 = aiPick(r,["Market 5D %"]);
+    const d20 = aiPick(r,["Market 20D %"]);
+    const news = aiPick(r,["News Evidence Stocks"]) || "0";
+    document.getElementById("aiMarketSummary").textContent =
+        `${proxy} | 1D: ${d1 || "N/A"}% | 5D: ${d5 || "N/A"}% | 20D: ${d20 || "N/A"}% | Stocks with news evidence: ${news}`;
 }
 async function loadAI(){
     try{
