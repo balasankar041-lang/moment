@@ -164,14 +164,11 @@ rows = []
 
 for _, r in df.iterrows():
     symbol = stock_name(r)
-    momentum = get(r, "Momentum 12-2", "Momentum %", "Momentum", "Momentum_Return")
-    # live_plan2_top50.csv stores Momentum 12-2 as a decimal return (e.g. 0.6616 = 66.16%).
-    if np.isfinite(momentum) and -2 <= momentum <= 2:
-        momentum *= 100.0
+    momentum = get(r, "Momentum %", "Momentum", "Momentum_Return")
     ident = get(r, "ID", "Id")
     mrank = get(r, "Momentum Rank", "Momentum_Rank", "Rank")
     idrank = get(r, "ID Rank", "ID_Rank")
-    signal = str(r.get("Portfolio Signal", r.get("Signal", "HOLD"))).upper()
+    signal = str(r.get("Signal", "HOLD")).upper()
     sector = sector_map.get(symbol, "Miscellaneous")
 
     pc = price_context(symbol)
@@ -238,6 +235,30 @@ for _, r in df.iterrows():
         f"{catalyst}"
     )
 
+    why_selected = (
+        f"Plan 2 Top 50: momentum rank {mrank if np.isfinite(mrank) else 'N/A'}, "
+        f"ID rank {idrank if np.isfinite(idrank) else 'N/A'}, "
+        f"momentum {momentum:.2f}%."
+        if np.isfinite(momentum)
+        else "Selected by the current Plan 2 Top 50 ranking."
+    )
+
+    # Confidence is evidence availability, not a prediction or recommendation.
+    confidence_parts = 0
+    if pc:
+        confidence_parts += 1
+    if mkt:
+        confidence_parts += 1
+    if headlines:
+        confidence_parts += 1
+    confidence = "High" if confidence_parts >= 3 else ("Medium" if confidence_parts >= 1 else "Low")
+
+    ai_view = (
+        f"{action}; {mq}"
+        if mq
+        else action
+    )
+
     rows.append({
         "Stock": symbol,
         "Sector": sector,
@@ -249,7 +270,10 @@ for _, r in df.iterrows():
         "ID Rank": idrank,
         **pc,
         **mkt,
+        "AI View": ai_view,
+        "Why Selected": why_selected,
         "Risk Flags": "; ".join(risks) if risks else "No major Plan 2 risk flag",
+        "Evidence Confidence": confidence,
         "News Evidence": news_text,
         "Catalyst Assessment": catalyst,
         "AI-Style Explanation": explanation,
