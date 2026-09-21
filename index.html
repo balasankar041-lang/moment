@@ -372,6 +372,8 @@ let top50 = [];
 let sectorTop50 = [];
 let allocation = [];
 let signals = [];
+let aiData = [];
+let aiSummary = [];
 
 
 function money(value){
@@ -1504,6 +1506,60 @@ function runAutoAllocation(){
 }
 
 
+
+function aiPick(row,names){
+    for(const name of names){
+        if(row[name]!==undefined && row[name]!==null &&
+           String(row[name]).trim()!=="") return String(row[name]).trim();
+    }
+    return "";
+}
+function renderAI(){
+    const q=String(document.getElementById("aiSearch")?.value||"").toLowerCase();
+    const rows=aiData.filter(r=>aiPick(r,["Stock","Symbol","Ticker"]).toLowerCase().includes(q));
+    document.getElementById("aiBody").innerHTML=rows.map(r=>`
+        <tr>
+        <td>${aiPick(r,["Rank","Plan 2 Rank","ID Rank"])}</td>
+        <td><b>${aiPick(r,["Stock","Symbol","Ticker"])}</b></td>
+        <td>${aiPick(r,["AI View","View","Intelligence View"])||"—"}</td>
+        <td>${aiPick(r,["Why Selected","Selection Reason"])||"No selection explanation available"}</td>
+        <td>${aiPick(r,["Risk Flags","Risk Flag","Risk"])||"None recorded"}</td>
+        <td>${aiPick(r,["Evidence Confidence","Confidence"])||"—"}</td>
+        <td style="white-space:normal;min-width:280px">${aiPick(r,["AI Explanation","Explanation","Market Explanation"])||"No additional evidence available"}</td>
+        </tr>`).join("");
+    document.getElementById("aiCount").textContent=aiData.length;
+    document.getElementById("aiRiskCount").textContent=aiData.filter(r=>{
+        const x=aiPick(r,["Risk Flags","Risk Flag","Risk"]);
+        return x && !/^none$/i.test(x);
+    }).length;
+}
+function renderAISummary(){
+    const r=aiSummary[0]||{};
+    document.getElementById("aiMarketView").textContent=
+        aiPick(r,["Market View","Overall Market View","View"])||"Available";
+    document.getElementById("aiMarketSummary").textContent=
+        aiPick(r,["Summary","Market Summary","Explanation","Market Explanation"])||
+        "Market-level intelligence summary is not available in the current run.";
+}
+async function loadAI(){
+    try{
+        aiData=await loadCSV("advanced_market_intelligence.csv");
+        try{aiSummary=await loadCSV("market_intelligence_summary.csv");}
+        catch(e){aiSummary=[];}
+        renderAISummary();
+        renderAI();
+    }catch(e){
+        aiData=[];
+        aiSummary=[];
+        document.getElementById("aiCount").textContent="0";
+        document.getElementById("aiMarketView").textContent="Unavailable";
+        document.getElementById("aiMarketSummary").textContent=
+            "Advanced market intelligence data is not available.";
+        document.getElementById("aiBody").innerHTML=
+            '<tr><td colspan="7">AI / Market Intelligence data unavailable for this run.</td></tr>';
+    }
+}
+
 async function loadDashboard(){
 
     try{
@@ -1527,6 +1583,8 @@ async function loadDashboard(){
             await loadCSV(
                 "signal_history.csv"
             );
+
+        await loadAI();
 
         renderTop50();
         renderSector();
