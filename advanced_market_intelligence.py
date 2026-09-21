@@ -240,7 +240,10 @@ for _, r in df.iterrows():
         f"ID rank {idrank if np.isfinite(idrank) else 'N/A'}, "
         f"momentum {momentum:.2f}%."
         if np.isfinite(momentum)
-        else "Selected by the current Plan 2 Top 50 ranking."
+        else (
+            f"Plan 2 Top 50: momentum rank {mrank if np.isfinite(mrank) else 'N/A'}, "
+            f"ID rank {idrank if np.isfinite(idrank) else 'N/A'}."
+        )
     )
 
     # Confidence is evidence availability, not a prediction or recommendation.
@@ -253,11 +256,10 @@ for _, r in df.iterrows():
         confidence_parts += 1
     confidence = "High" if confidence_parts >= 3 else ("Medium" if confidence_parts >= 1 else "Low")
 
-    ai_view = (
-        f"{action}; {mq}"
-        if mq
-        else action
-    )
+    # Keep the AI View descriptive: report the Plan 2 signal and available
+    # evidence rather than turning the layer into a new trading rule.
+    quality_view = mq if mq and str(mq).strip().lower() != "unknown" else ""
+    ai_view = f"{action}" + (f"; {quality_view}" if quality_view else "")
 
     rows.append({
         "Stock": symbol,
