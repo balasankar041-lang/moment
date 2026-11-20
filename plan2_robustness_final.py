@@ -80,13 +80,9 @@ print(
 
 
 def yahoo_symbol(s):
+    import re
     s = str(s).strip().upper()
-    return (
-        s + ".NS"
-        if s.isalpha() and len(s) <= 20
-        else None
-    )
-
+    return s + ".NS" if re.fullmatch(r"[A-Z0-9&\-]{1,20}", s) else None
 
 def members_at_date(date):
     x = membership[
