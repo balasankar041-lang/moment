@@ -29,7 +29,7 @@ jobs:
       - name: Restore price cache
         uses: actions/cache@v4
         with:
-          path: data/price_cache
+          path: data_cache
           key: price-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             price-cache-${{ runner.os }}-
