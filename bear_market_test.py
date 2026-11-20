@@ -36,13 +36,9 @@ membership = membership.dropna(
 
 
 def yahoo_symbol(s):
+    import re
     s = str(s).strip().upper()
-
-    if s.isalpha() and len(s) <= 20:
-        return s + ".NS"
-
-    return None
-
+    return s + ".NS" if re.fullmatch(r"[A-Z0-9&\-]{1,20}", s) else None
 
 def members_at_date(date):
 
