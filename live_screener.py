@@ -26,9 +26,9 @@ TOP_50 = 50
 
 
 def yahoo_symbol(s):
+    import re
     s = str(s).strip().upper()
-    return s + ".NS" if s.isalpha() and len(s) <= 20 else None
-
+    return s + ".NS" if re.fullmatch(r"[A-Z0-9&\-]{1,20}", s) else None
 
 # ------------------------------------------------------------
 # Load latest Nifty 500 membership
