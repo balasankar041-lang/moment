@@ -3,8 +3,7 @@ Plan 2 practical capital allocation
 
 Rule:
 - Capital = ₹20,000
-- Select 10 affordable stocks from Plan 2 Top 50
-- Maximum ₹1,500 per stock
+- Stock count and max per stock come from allocation_rules(capital)
 - Whole shares only
 - Total investment <= ₹20,000
 - Plan 2 ranking is unchanged
@@ -147,6 +146,7 @@ def main():
                     r,
                     [
                         "Rank",
+                        "Momentum Rank",
                         "ID Rank",
                         "Portfolio Rank"
                     ]
@@ -163,6 +163,7 @@ def main():
                     pick(
                         r,
                         [
+                            "Momentum 12-2",
                             "Momentum %",
                             "Momentum",
                             "Momentum Return"
