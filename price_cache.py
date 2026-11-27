@@ -1,12 +1,12 @@
 import os
+import re
 import time
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
-import numpy as np
 import yfinance as yf
 
-START_DATE = "2019-01-01"
+START_DATE = "2017-01-01"
 CACHE_DIR = "data_cache"
 CLOSE_FILE = os.path.join(CACHE_DIR, "close.pkl")
 VOLUME_FILE = os.path.join(CACHE_DIR, "volume.pkl")
@@ -15,6 +15,19 @@ BATCH_SIZE = 10
 RETRIES = 5
 BATCH_DELAY = 3
 MIN_COVERAGE = 0.80
+
+
+def clean_nse_symbol(symbol):
+    s = str(symbol).strip().upper()
+    s = re.sub(r"\.NS$", "", s)
+    if re.fullmatch(r"[A-Z0-9&\-]{2,20}", s) and not s.endswith("&") and not s.startswith("&"):
+        return s
+    return None
+
+
+def yahoo_symbol(symbol):
+    s = clean_nse_symbol(symbol)
+    return f"{s}.NS" if s else None
 
 
 def download_batches(symbols, start, end):
@@ -41,7 +54,7 @@ def download_batches(symbols, start, end):
                 if frame is not None and not frame.empty:
                     break
             except Exception as exc:
-                print(f"Batch {i//BATCH_SIZE + 1}: attempt {attempt + 1} failed: {exc}")
+                print(f"Batch {i // BATCH_SIZE + 1}: attempt {attempt + 1} failed: {exc}")
 
             if attempt < RETRIES - 1:
                 time.sleep(min(60, 5 * (2 ** attempt)))
@@ -52,17 +65,23 @@ def download_batches(symbols, start, end):
             continue
 
         try:
-            close = frame["Close"]
-            volume = frame["Volume"]
+            if isinstance(frame.columns, pd.MultiIndex):
+                close = frame["Close"].copy()
+                volume = frame["Volume"].copy()
+            else:
+                close = frame[["Close"]].copy()
+                volume = frame[["Volume"]].copy()
+                close.columns = [batch[0]]
+                volume.columns = [batch[0]]
         except Exception:
             failed.extend(batch)
             print(f"FAILED batch (missing Close/Volume): {batch}")
             continue
 
         if isinstance(close, pd.Series):
-            close = close.to_frame()
+            close = close.to_frame(name=batch[0])
         if isinstance(volume, pd.Series):
-            volume = volume.to_frame()
+            volume = volume.to_frame(name=batch[0])
 
         close.columns = [
             c.replace(".NS", "") if isinstance(c, str) else c
@@ -91,7 +110,8 @@ def download_batches(symbols, start, end):
     return close.sort_index(), volume.sort_index(), failed
 
 
-def load_cache():
+def load_cache(with_ns_suffix=False):
+    """Load cached daily Close and Volume DataFrames if available."""
     if not (os.path.exists(CLOSE_FILE) and os.path.exists(VOLUME_FILE)):
         return None, None
 
@@ -101,19 +121,29 @@ def load_cache():
     close.index = pd.to_datetime(close.index)
     volume.index = pd.to_datetime(volume.index)
 
-    return close.sort_index(), volume.sort_index()
+    close = close.sort_index()
+    volume = volume.sort_index()
+
+    if with_ns_suffix:
+        close = close.rename(columns=lambda c: c if str(c).endswith(".NS") else f"{c}.NS")
+        volume = volume.rename(columns=lambda c: c if str(c).endswith(".NS") else f"{c}.NS")
+
+    return close, volume
 
 
 def main():
     os.makedirs(CACHE_DIR, exist_ok=True)
 
     membership = pd.read_csv("nifty500_membership_timeline.csv")
-    membership["symbol"] = membership["symbol"].astype(str).str.strip()
-    symbols = sorted(membership["symbol"].dropna().unique())
+    symbols = sorted({
+        clean_nse_symbol(s)
+        for s in membership["symbol"].dropna()
+        if clean_nse_symbol(s) is not None
+    })
 
     print("Historical symbols:", len(symbols))
 
-    old_close, old_volume = load_cache()
+    old_close, old_volume = load_cache(with_ns_suffix=False)
 
     today = datetime.now(timezone.utc).date()
     end_date = (today + timedelta(days=1)).isoformat()
@@ -142,7 +172,6 @@ def main():
     else:
         close, volume = new_close, new_volume
 
-    # Keep the requested universe and require broad coverage.
     close = close.reindex(columns=symbols)
     volume = volume.reindex(columns=symbols)
 
