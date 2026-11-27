@@ -1,6 +1,12 @@
 import pandas as pd
 import numpy as np
+import re
 import yfinance as yf
+
+try:
+    from price_cache import load_cache
+except Exception:
+    load_cache = None
 
 # ============================================================
 # MULTI-CAPITAL REALISTIC LIQUIDITY TEST
@@ -70,10 +76,28 @@ def main():
     print()
 
     stock_rows = []
+    cached_close, cached_vol = (load_cache(with_ns_suffix=False) if load_cache is not None else (None, None))
 
     for i, symbol in enumerate(symbols, 1):
 
         try:
+            if not re.fullmatch(r"[A-Z0-9&\-]{2,20}", symbol) or symbol.endswith("&") or symbol.startswith("&"):
+                continue
+            if cached_close is not None and cached_vol is not None and symbol in cached_close.columns and symbol in cached_vol.columns:
+                c_ser = cached_close[symbol].dropna()
+                v_ser = cached_vol[symbol].reindex(c_ser.index).dropna()
+                idx = c_ser.index.intersection(v_ser.index)
+                if len(idx) >= 20:
+                    price = float(c_ser.loc[idx[-1]])
+                    tv = (c_ser.loc[idx[-100:]] * v_ser.loc[idx[-100:]]).replace([np.inf, -np.inf], np.nan).dropna()
+                    if not tv.empty:
+                        stock_rows.append({
+                            "symbol": symbol,
+                            "price": price,
+                            "avg_daily_traded_value": float(tv.mean()),
+                            "median_daily_traded_value": float(tv.median()),
+                        })
+                        continue
             data = yf.download(
                 yahoo_symbol(symbol),
                 start=START_DATE,
