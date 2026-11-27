@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import warnings
+try:
+    from price_cache import load_cache
+except Exception:
+    load_cache = None
 warnings.filterwarnings("ignore")
 
 MEMBERSHIP_FILE = "nifty500_membership_timeline.csv"
@@ -14,7 +18,7 @@ TEST_WINDOWS = [
     ("2023", "2023-01-31", "2023-12-31"),
     ("2024", "2024-01-31", "2024-12-31"),
     ("2025", "2025-01-31", "2025-12-31"),
-    ("2026", "2026-01-31", "2026-08-31"),
+    ("2026", "2026-01-31", "2026-12-31"),
 ]
 
 membership = pd.read_csv(MEMBERSHIP_FILE)
@@ -25,7 +29,7 @@ membership = membership.dropna(subset=["effective_date","symbol"]).sort_values([
 def yahoo_symbol(s):
     import re
     s = str(s).strip().upper()
-    return s + ".NS" if re.fullmatch(r"[A-Z0-9&\-]{1,20}", s) else None
+    return s + ".NS" if (re.fullmatch(r"[A-Z0-9&\-]{2,20}", s) and not s.endswith("&") and not s.startswith("&")) else None
 
 def members_at_date(date):
     x = membership[membership["effective_date"] <= date]
@@ -64,7 +68,16 @@ def download_prices(symbols, batch_size=25):
     if not frames: return pd.DataFrame()
     return pd.concat(frames,axis=1,sort=True).loc[:,lambda x:~x.columns.duplicated()].sort_index()
 
-prices = download_prices(symbols).dropna(axis=1,how="all")
+prices = pd.DataFrame()
+if load_cache is not None:
+    c_cache, _ = load_cache(with_ns_suffix=True)
+    if c_cache is not None and not c_cache.empty:
+        cols = [s for s in symbols if s in c_cache.columns]
+        if len(cols) / max(1, len(symbols)) >= 0.80:
+            print(f"Using cached prices: {len(cols)}/{len(symbols)} symbols")
+            prices = c_cache[cols].dropna(axis=1, how="all")
+if prices.empty:
+    prices = download_prices(symbols).dropna(axis=1, how="all")
 if prices.empty: raise SystemExit("No price data downloaded.")
 
 last_trading_day = prices.index.max()
