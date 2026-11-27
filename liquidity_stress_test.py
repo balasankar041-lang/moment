@@ -2,7 +2,13 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import warnings
+import re
 import time
+
+try:
+    from price_cache import load_cache
+except Exception:
+    load_cache = None
 
 warnings.filterwarnings("ignore")
 
@@ -90,7 +96,7 @@ def members_at(date):
 
 def yahoo_symbol(symbol):
     symbol = str(symbol).strip().upper()
-    if symbol.isalpha() and len(symbol) <= 20:
+    if re.fullmatch(r"[A-Z0-9&\-]{2,20}", symbol) and not symbol.endswith("&") and not symbol.startswith("&"):
         return symbol + ".NS"
     return None
 
@@ -162,7 +168,16 @@ def download_data(tickers, batch_size=10, max_retries=5):
     return close, volume
 
 
-close, volume = download_data(symbols)
+close, volume = (None, None)
+if load_cache is not None:
+    c_cache, v_cache = load_cache(with_ns_suffix=True)
+    if c_cache is not None and v_cache is not None and not c_cache.empty:
+        common_cached = [s for s in symbols if s in c_cache.columns and s in v_cache.columns]
+        if len(common_cached) / max(1, len(symbols)) >= 0.80:
+            print(f"Using cached close & volume: {len(common_cached)}/{len(symbols)} symbols")
+            close, volume = c_cache[common_cached], v_cache[common_cached]
+if close is None or close.empty:
+    close, volume = download_data(symbols)
 
 if close.empty or volume.empty:
     raise SystemExit("No usable price/volume data downloaded.")
@@ -185,9 +200,11 @@ print("Last available trading day:", close.index.max().date())
 
 monthly_close = close.resample("ME").last()
 
-last_completed_month = (
-    close.index.max().to_period("M").to_timestamp("M")
-)
+last_trading_day = close.index.max()
+if last_trading_day.to_period("M") == today.to_period("M"):
+    last_completed_month = (today.to_period("M") - 1).end_time.normalize()
+else:
+    last_completed_month = last_trading_day.to_period("M").end_time.normalize()
 
 month_ends = [
     d for d in monthly_close.index
@@ -204,8 +221,8 @@ month_ends = [
     if d >= first_test_date
 ]
 
-# We need a next completed month to calculate the return.
-test_months = month_ends[:-1]
+# Loop iterates test_months[:-1] and pairs each date with test_months[i + 1].
+test_months = month_ends
 
 
 # ------------------------------------------------------------
