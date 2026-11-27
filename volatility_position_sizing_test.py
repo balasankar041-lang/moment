@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import warnings
+try:
+    from price_cache import load_cache
+except Exception:
+    load_cache = None
 
 warnings.filterwarnings("ignore")
 
@@ -47,7 +51,7 @@ membership = membership.dropna(
 def yahoo_symbol(s):
     import re
     s = str(s).strip().upper()
-    return s + ".NS" if re.fullmatch(r"[A-Z0-9&\-]{1,20}", s) else None
+    return s + ".NS" if (re.fullmatch(r"[A-Z0-9&\-]{2,20}", s) and not s.endswith("&") and not s.startswith("&")) else None
 
 def members_at_date(date):
 
@@ -184,12 +188,16 @@ def download_prices(symbols, batch_size=25):
 print("\nDOWNLOADING PRICE DATA")
 print("======================")
 
-prices = download_prices(symbols)
-
-prices = prices.dropna(
-    axis=1,
-    how="all"
-)
+prices = pd.DataFrame()
+if load_cache is not None:
+    c_cache, _ = load_cache(with_ns_suffix=True)
+    if c_cache is not None and not c_cache.empty:
+        cols = [s for s in symbols if s in c_cache.columns]
+        if len(cols) / max(1, len(symbols)) >= 0.80:
+            print(f"Using cached prices: {len(cols)}/{len(symbols)} symbols")
+            prices = c_cache[cols].dropna(axis=1, how="all")
+if prices.empty:
+    prices = download_prices(symbols).dropna(axis=1, how="all")
 
 if prices.empty:
     raise SystemExit(
@@ -350,18 +358,18 @@ dates = [
 
 
 previous = {}
+previous_overlay = {}
 
 rows = []
 
 
 for i, date in enumerate(dates):
 
-    if i + 1 >= len(monthly.index):
+    loc = monthly.index.get_loc(date)
+    if loc + 1 >= len(monthly.index):
         break
 
-    next_date = monthly.index[
-        monthly.index.get_loc(date) + 1
-    ]
+    next_date = monthly.index[loc + 1]
 
     candidates = [
         s
@@ -544,10 +552,15 @@ for i, date in enumerate(dates):
             )
         )
 
-    risk_managed_return = (
-        exposure
-        * original_return
+    new_overlay = {s: w * exposure for s, w in new.items()}
+    overlay_symbols = set(previous_overlay) | set(new_overlay)
+    overlay_turnover = sum(
+        abs(new_overlay.get(s, 0.0) - previous_overlay.get(s, 0.0))
+        for s in overlay_symbols
     )
+    overlay_cost_mult = 1.0 - overlay_turnover * TRADING_COST
+    risk_managed_return = overlay_cost_mult * (1.0 + exposure * portfolio_return) - 1.0
+    previous_overlay = new_overlay
 
     rows.append(
         {
