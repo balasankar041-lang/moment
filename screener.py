@@ -17,7 +17,7 @@ def score_universe(prices, universe=None):
     rows = []
     for symbol in prices.columns:
         s = prices[symbol].dropna()
-        if len(s) < 252:
+        if len(s) < 253:
             continue
 
         r63 = s.iloc[-1] / s.iloc[-64] - 1
