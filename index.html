@@ -3,9 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>Plan 2 Live Screener</title>
-
 <style>
 body{
     font-family:Arial,sans-serif;
@@ -14,15 +12,8 @@ body{
     background:#f5f5f5;
     color:#222;
 }
-
-h1{
-    margin-bottom:5px;
-}
-
-h2{
-    margin-top:30px;
-}
-
+h1{ margin-bottom:5px; }
+h2{ margin-top:30px; }
 .card{
     background:white;
     padding:18px;
@@ -30,13 +21,11 @@ h2{
     border-radius:10px;
     box-shadow:0 2px 8px rgba(0,0,0,.08);
 }
-
 .summary{
     display:flex;
     gap:15px;
     flex-wrap:wrap;
 }
-
 .box{
     background:white;
     padding:15px;
@@ -44,13 +33,11 @@ h2{
     min-width:150px;
     box-shadow:0 2px 6px rgba(0,0,0,.06);
 }
-
 .box b{
     display:block;
     font-size:20px;
     margin-top:5px;
 }
-
 input{
     width:100%;
     max-width:400px;
@@ -60,144 +47,78 @@ input{
     margin:10px 0 15px;
     box-sizing:border-box;
 }
-
-.table-wrap{
-    overflow-x:auto;
-}
-
+.table-wrap{ overflow-x:auto; }
 table{
     width:100%;
     border-collapse:collapse;
     background:white;
 }
-
 th,td{
     padding:10px;
     border-bottom:1px solid #ddd;
     text-align:left;
     white-space:nowrap;
 }
-
-th{
-    background:#eee;
-}
-
-.note{
+th{ background:#eee; }
+.note, .refresh{
     color:#666;
     font-size:13px;
 }
-
-.refresh{
-    margin-top:10px;
-    color:#666;
-    font-size:13px;
+.refresh{ margin-top:10px; }
+.wrap-cell{
+    white-space:normal;
+    min-width:260px;
 }
 </style>
 </head>
-
 <body>
 
 <h1>Plan 2 Live Screener</h1>
-
 <div class="note">
-Nifty 500 • Momentum + ID • Monthly strategy • Manual broker execution
+Nifty 500 &bull; Momentum + ID &bull; Monthly strategy &bull; Manual broker execution
 </div>
 
 <div class="summary">
-
-<div class="box">
-Plan 2 Top 50
-<b id="top50Count">0</b>
+<div class="box">Plan 2 Top 50<b id="top50Count">0</b></div>
+<div class="box">Sector Stocks<b id="sectorCount">0</b></div>
+<div class="box">Allocation Stocks<b id="allocationCount">0</b></div>
+<div class="box">Capital<b id="capitalDisplay">₹20,000</b></div>
+<div class="box">Invested<b id="invested">₹0</b></div>
+<div class="box">Cash<b id="cash">₹20,000</b></div>
 </div>
-
-<div class="box">
-Sector Stocks
-<b id="sectorCount">0</b>
-</div>
-
-<div class="box">
-Allocation Stocks
-<b id="allocationCount">0</b>
-</div>
-
-<div class="box">
-Capital
-<b>₹20,000</b>
-</div>
-
-<div class="box">
-Invested
-<b id="invested">₹0</b>
-</div>
-
-<div class="box">
-Cash
-<b id="cash">₹20,000</b>
-</div>
-
-</div>
-
 
 <!-- PLAN 2 TOP 50 -->
-
 <h2>Plan 2 Current Top 50</h2>
-
 <div class="card">
-
-<input
-    id="top50Search"
-    type="text"
-    placeholder="Search stock..."
-    onkeyup="renderTop50()"
->
-
+<input id="top50Search" type="text" placeholder="Search stock..." onkeyup="renderTop50()">
 <div class="table-wrap">
-
 <table>
-
 <thead>
 <tr>
-<th>Rank</th>
+<th>Plan 2 Rank</th>
+<th>Mom Rank</th>
 <th>Stock</th>
 <th>Price</th>
-<th>Momentum %</th>
+<th>Momentum 12-2</th>
 <th>ID</th>
 <th>Signal</th>
 <th>Weight</th>
 </tr>
 </thead>
-
 <tbody id="top50Body"></tbody>
-
 </table>
-
 </div>
-
 </div>
-
 
 <!-- SECTOR-WISE TOP 50 -->
-
 <h2>Sector-wise Plan 2 Top 50</h2>
-
 <div class="note">
-Same Plan 2 Top 50 stocks • Sector classification only •
-No stocks added or removed • Original Plan 2 ranking unchanged
+Same Plan 2 Top 50 stocks &bull; Sector classification only &bull; No stocks added or removed &bull; Original Plan 2 ranking unchanged
 </div>
-
 <div class="card">
-
-<input
-    id="sectorSearch"
-    type="text"
-    placeholder="Search stock or sector..."
-    onkeyup="renderSector()"
->
-
+<input id="sectorSearch" type="text" placeholder="Search stock or sector..." onkeyup="renderSector()">
 <div class="table-wrap">
-
 <table>
-
 <thead>
 <tr>
 <th>Plan 2 Rank</th>
@@ -206,62 +127,30 @@ No stocks added or removed • Original Plan 2 ranking unchanged
 <th>Sector Rank</th>
 <th>Sector Count</th>
 <th>Price</th>
-<th>Momentum %</th>
+<th>Momentum 12-2</th>
 <th>ID</th>
 <th>Signal</th>
 </tr>
 </thead>
-
 <tbody id="sectorBody"></tbody>
-
 </table>
-
 </div>
-
 </div>
-
-
 
 <!-- AUTOMATIC CAPITAL ALLOCATION -->
-
 <h2>Automatic Capital Allocation</h2>
-
 <div class="card">
-
 <div class="note">
-Enter your investment amount. The system will automatically select
-stocks from the current Plan 2 Top 50 using Plan 2 ranking,
-sector diversification and whole-share allocation.
+Enter your investment amount. The system selects stocks from the current Plan 2 Top 50 using Plan 2 ranking,
+maximum 3 stocks per sector, whole shares, and per-stock cap (₹1,500 for ₹20,000 capital).
 </div>
-
-<input
-    id="autoCapital"
-    type="number"
-    min="1"
-    step="100"
-    value="20000"
-    placeholder="Enter investment amount"
->
-
-<button
-    onclick="runAutoAllocation()"
-    style="
-        padding:10px 18px;
-        border:0;
-        border-radius:6px;
-        cursor:pointer;
-        font-weight:bold;
-    "
->
-    AUTO ALLOCATE
+<input id="autoCapital" type="number" min="1" step="100" value="20000" placeholder="Enter investment amount">
+<button onclick="runAutoAllocation()" style="padding:10px 18px;border:0;border-radius:6px;cursor:pointer;font-weight:bold;">
+AUTO ALLOCATE
 </button>
-
 <div id="autoSummary" style="margin-top:15px;"></div>
-
 <div class="table-wrap">
-
 <table>
-
 <thead>
 <tr>
 <th>Plan 2 Rank</th>
@@ -273,68 +162,42 @@ sector diversification and whole-share allocation.
 <th>Weight</th>
 </tr>
 </thead>
-
 <tbody id="autoAllocationBody"></tbody>
-
 </table>
-
 </div>
-
 </div>
 
 <!-- PRACTICAL ALLOCATION -->
-
 <h2>₹20,000 Practical Allocation</h2>
-
 <div class="note">
-10 stocks • Maximum ₹1,500 per stock • Whole shares only •
-Plan 2 ranking unchanged
+10 target stocks &bull; Maximum ₹1,500 per stock &bull; Maximum 3 per sector &bull; Whole shares only &bull; Plan 2 ranking unchanged
 </div>
-
 <div class="card">
-
-<input
-    id="allocationSearch"
-    type="text"
-    placeholder="Search stock..."
-    onkeyup="renderAllocation()"
->
-
+<input id="allocationSearch" type="text" placeholder="Search stock..." onkeyup="renderAllocation()">
 <div class="table-wrap">
-
 <table>
-
 <thead>
 <tr>
-<th>Rank</th>
+<th>Plan 2 Rank</th>
 <th>Stock</th>
+<th>Sector</th>
 <th>Price</th>
-<th>Target</th>
+<th>Cap</th>
 <th>Shares</th>
 <th>Invested</th>
 <th>Weight</th>
 </tr>
 </thead>
-
 <tbody id="allocationBody"></tbody>
-
 </table>
-
 </div>
-
 </div>
-
 
 <!-- SIGNAL HISTORY -->
-
 <h2>Signal History</h2>
-
 <div class="card">
-
 <div class="table-wrap">
-
 <table>
-
 <thead>
 <tr>
 <th>Date</th>
@@ -343,76 +206,32 @@ Plan 2 ranking unchanged
 <th>Reason</th>
 </tr>
 </thead>
-
 <tbody id="signalBody"></tbody>
-
 </table>
-
 </div>
-
 </div>
-
-
-<div class="refresh">
-Auto refresh: every 5 minutes
-</div>
-
-<div class="note">
-This dashboard is for research and execution planning.
-Orders are not automatically sent to a broker.
-</div>
-
-
 
 <!-- ADVANCED MARKET INTELLIGENCE -->
-
 <h2>AI / Market Intelligence</h2>
-
 <div class="note">
-Evidence-based market intelligence • Plan 2 ranking unchanged • AI layer does not change allocation
+Evidence-based market intelligence &bull; Plan 2 ranking unchanged &bull; AI layer does not change allocation
 </div>
-
 <div class="summary">
-
-<div class="box">
-Stocks Analysed
-<b id="aiCount">0</b>
+<div class="box">Stocks Analysed<b id="aiCount">0</b></div>
+<div class="box">Risk Flags<b id="aiRiskCount">0</b></div>
+<div class="box">Market View<b id="aiMarketView">Loading...</b></div>
 </div>
-
-<div class="box">
-Risk Flags
-<b id="aiRiskCount">0</b>
-</div>
-
-<div class="box">
-Market View
-<b id="aiMarketView">Loading...</b>
-</div>
-
-</div>
-
 <div class="card">
-
 <div class="note"><b>Market Summary</b></div>
-<div id="aiMarketSummary" style="margin-top:8px;white-space:normal">
-Loading market intelligence...
-</div>
-
-<input
-    id="aiSearch"
-    type="text"
-    placeholder="Search AI stock analysis..."
-    onkeyup="renderAI()"
->
-
+<div id="aiMarketSummary" style="margin-top:8px;white-space:normal">Loading market intelligence...</div>
+<input id="aiSearch" type="text" placeholder="Search AI stock analysis..." onkeyup="renderAI()">
 <div class="table-wrap">
-
 <table>
-
 <thead>
 <tr>
-<th>Rank</th>
+<th>Plan 2 Rank</th>
 <th>Stock</th>
+<th>Momentum %</th>
 <th>AI View</th>
 <th>Why Selected</th>
 <th>Risk Flags</th>
@@ -420,23 +239,48 @@ Loading market intelligence...
 <th>Explanation</th>
 </tr>
 </thead>
-
 <tbody id="aiBody">
-<tr>
-<td colspan="7">Loading AI / Market Intelligence...</td>
-</tr>
+<tr><td colspan="8">Loading AI / Market Intelligence...</td></tr>
 </tbody>
-
 </table>
-
+</div>
 </div>
 
+<!-- FULL AI STOCK RESEARCH -->
+<h2>Deep Stock Research (Groq AI)</h2>
+<div class="note">
+Optional evidence-first research from stock_research_ai.csv &bull; Does not change Plan 2 ranking or allocation
+</div>
+<div class="card">
+<input id="researchSearch" type="text" placeholder="Search deep research..." onkeyup="renderResearch()">
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Stock</th>
+<th>Confidence</th>
+<th>Executive Summary</th>
+<th>Fundamentals</th>
+<th>Quarterly</th>
+<th>Risk Flags</th>
+</tr>
+</thead>
+<tbody id="researchBody">
+<tr><td colspan="6">Loading stock research...</td></tr>
+</tbody>
+</table>
+</div>
 </div>
 
+<div class="refresh">Auto refresh: every 5 minutes</div>
+<div class="note">
+This dashboard is for research and execution planning. Orders are not automatically sent to a broker.
+</div>
 
+<script src="./auto_allocation.js"></script>
 <script>
-
 const BASE = "./";
+const DEFAULT_CAPITAL = 20000;
 
 let top50 = [];
 let sectorTop50 = [];
@@ -444,24 +288,25 @@ let allocation = [];
 let signals = [];
 let aiData = [];
 let aiSummary = [];
+let researchData = [];
 
-
-function money(value){
-
-    const n = Number(value || 0);
-
-    return "₹" + n.toLocaleString(
-        "en-IN",
-        {
-            minimumFractionDigits:2,
-            maximumFractionDigits:2
-        }
-    );
+function esc(value){
+    return String(value ?? "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;");
 }
 
+function money(value){
+    const n = Number(String(value ?? "").replace(/₹/g,"").replace(/,/g,"").trim() || 0);
+    return "₹" + (Number.isFinite(n) ? n : 0).toLocaleString("en-IN",{
+        minimumFractionDigits:2,
+        maximumFractionDigits:2
+    });
+}
 
-function num(value){
-
+function num(value, maxDigits=2){
     const n = Number(
         String(value ?? "")
             .replace(/₹/g,"")
@@ -469,1247 +314,353 @@ function num(value){
             .replace(/%/g,"")
             .trim()
     );
-
     if(!Number.isFinite(n)) return "0";
-
-    return n.toLocaleString(
-        "en-IN",
-        {
-            maximumFractionDigits:2
-        }
-    );
+    return n.toLocaleString("en-IN",{ maximumFractionDigits:maxDigits });
 }
 
-function momentumPercent(row){
-
-    const raw = pick(row,[
-        "Momentum 12-2",
-        "Momentum %",
-        "Momentum",
-        "Momentum Return",
-        "Momentum Return %",
-        "Momentum_Return",
-        "Momentum_Return_%"
-    ]);
-
-    if(raw === "" || raw === null || raw === undefined) return "";
-
-    const text = String(raw)
-        .replace(/%/g,"")
-        .replace(/,/g,"")
-        .trim();
-
-    const n = Number(text);
-
-    if(!Number.isFinite(n)) return "";
-
-    // live_plan2_top50.csv stores Momentum 12-2 as decimal return:
-    // 0.661609 -> 66.1609%
-    const percent = text.includes("%") ? n : (Math.abs(n) <= 2 ? n * 100 : n);
-
-    return percent.toLocaleString("en-IN",{
-        maximumFractionDigits:2
-    }) + "%";
-}
-
-
-function pick(row,names){
-
+function pick(row, names){
     for(const name of names){
-
-        if(
-            row[name] !== undefined &&
-            row[name] !== null &&
-            String(row[name]).trim() !== ""
-        ){
-
+        if(row[name] !== undefined && row[name] !== null && String(row[name]).trim() !== ""){
             return row[name];
         }
     }
-
     return "";
 }
 
-
-function parseCSV(text){
-
-    const lines =
-        text.trim().split(/\r?\n/);
-
-    if(lines.length < 2){
-        return [];
+function momentumPercent(row){
+    // Exact handling: Momentum 12-2 in live_plan2_top50.csv is ALWAYS a decimal return
+    // (e.g. 6.9258 -> 692.58%, 0.4408 -> 44.08%).
+    if(row["Momentum 12-2"] !== undefined && row["Momentum 12-2"] !== null && String(row["Momentum 12-2"]).trim() !== ""){
+        const rawStr = String(row["Momentum 12-2"]).trim();
+        const hasPct = rawStr.includes("%");
+        const n = Number(rawStr.replace(/%/g,"").replace(/,/g,"").trim());
+        if(!Number.isFinite(n)) return "";
+        const pctVal = hasPct ? n : n * 100;
+        return pctVal.toLocaleString("en-IN",{ maximumFractionDigits:2 }) + "%";
     }
 
-    const headers =
-        parseCSVLine(lines[0]);
+    const raw = pick(row,["Momentum %","Momentum Return %","Momentum_Return_%","Momentum","Momentum Return","Momentum_Return"]);
+    if(raw === "" || raw === null || raw === undefined) return "";
+    const rawStr = String(raw).trim();
+    const n = Number(rawStr.replace(/%/g,"").replace(/,/g,"").trim());
+    if(!Number.isFinite(n)) return "";
+    return n.toLocaleString("en-IN",{ maximumFractionDigits:2 }) + "%";
+}
 
+function hasRealRiskFlag(text){
+    const x = String(text ?? "").trim().toLowerCase();
+    if(!x) return false;
+    return !(
+        x === "none" ||
+        x === "none recorded" ||
+        x === "no major plan 2 risk flag" ||
+        x === "—" ||
+        x === "-" ||
+        x === "[]"
+    );
+}
+
+function parseCSV(text){
+    const lines = text.trim().split(/\r?\n/);
+    if(lines.length < 2) return [];
+    const headers = parseCSVLine(lines[0]);
     return lines.slice(1).map(line=>{
-
-        const values =
-            parseCSVLine(line);
-
-        const obj={};
-
-        headers.forEach(
-            (h,i)=>{
-                obj[h]=values[i] ?? "";
-            }
-        );
-
+        const values = parseCSVLine(line);
+        const obj = {};
+        headers.forEach((h,i)=>{ obj[h] = values[i] ?? ""; });
         return obj;
-
     });
 }
 
-
 function parseCSVLine(line){
-
-    const result=[];
-    let current="";
-    let quoted=false;
-
+    const result = [];
+    let current = "";
+    let quoted = false;
     for(let i=0;i<line.length;i++){
-
-        const c=line[i];
-
+        const c = line[i];
         if(c === '"'){
-
-            if(
-                quoted &&
-                line[i+1] === '"'
-            ){
-
+            if(quoted && line[i+1] === '"'){
                 current += '"';
                 i++;
+            } else {
+                quoted = !quoted;
             }
-            else{
-                quoted=!quoted;
-            }
-
-        }
-        else if(
-            c === "," &&
-            !quoted
-        ){
-
+        } else if(c === "," && !quoted){
             result.push(current);
-            current="";
-        }
-        else{
-
+            current = "";
+        } else {
             current += c;
         }
     }
-
     result.push(current);
-
     return result;
 }
 
-
 async function loadCSV(file){
-
-    const response =
-        await fetch(
-            BASE +
-            file +
-            "?t=" +
-            Date.now()
-        );
-
-    if(!response.ok){
-        throw new Error(
-            file +
-            " HTTP " +
-            response.status
-        );
-    }
-
-    const text =
-        await response.text();
-
-    return parseCSV(text);
+    const response = await fetch(BASE + file + "?t=" + Date.now());
+    if(!response.ok) throw new Error(file + " HTTP " + response.status);
+    return parseCSV(await response.text());
 }
-
 
 function renderTop50(){
-
-    const search =
-        document
-        .getElementById("top50Search")
-        .value
-        .toLowerCase();
-
-    const filtered =
-        top50.filter(row=>{
-
-            const stock =
-                String(
-                    pick(
-                        row,
-                        [
-                            "Stock",
-                            "Symbol",
-                            "Ticker"
-                        ]
-                    )
-                ).toLowerCase();
-
-            return stock.includes(search);
-        });
-
-
-    document
-    .getElementById("top50Body")
-    .innerHTML =
-        filtered.map(row=>{
-
-            const rank =
-                pick(
-                    row,
-                    [
-                        "Rank",
-                        "ID Rank",
-                        "Portfolio Rank"
-                    ]
-                );
-
-            const stock =
-                pick(
-                    row,
-                    [
-                        "Stock",
-                        "Symbol",
-                        "Ticker"
-                    ]
-                );
-
-            const price =
-                pick(
-                    row,
-                    [
-                        "Live Price",
-                        "Price",
-                        "Current Price"
-                    ]
-                );
-
-            const momentum = momentumPercent(row);
-
-            const id =
-                pick(
-                    row,
-                    [
-                        "ID",
-                        "Id",
-                        "ID Score"
-                    ]
-                );
-
-            const signal =
-                pick(
-                    row,
-                    [
-                        "Signal",
-                        "Portfolio Signal"
-                    ]
-                );
-
-            return `
-            <tr>
-                <td>${rank}</td>
-                <td><b>${stock}</b></td>
-                <td>${money(price)}</td>
-                <td>${momentum}</td>
-                <td>${num(id)}</td>
-                <td>${signal}</td>
-                <td>2.00%</td>
-            </tr>
-            `;
-
-        }).join("");
-
-    document
-    .getElementById("top50Count")
-    .textContent = top50.length;
+    const search = document.getElementById("top50Search").value.toLowerCase();
+    const filtered = top50.filter(row =>
+        String(pick(row,["Stock","Symbol","Ticker"])).toLowerCase().includes(search)
+    );
+    document.getElementById("top50Body").innerHTML = filtered.map(row=>{
+        const rank = pick(row,["ID Rank","Rank","Portfolio Rank"]);
+        const momRank = pick(row,["Momentum Rank"]);
+        const stock = pick(row,["Stock","Symbol","Ticker"]);
+        const price = pick(row,["Live Price","Price","Current Price"]);
+        const momentum = momentumPercent(row);
+        const id = pick(row,["ID","Id","ID Score"]);
+        const signal = pick(row,["Portfolio Signal","Signal"]);
+        const weight = pick(row,["Weight %"]) || "2.00";
+        return `<tr>
+            <td>${esc(rank)}</td>
+            <td>${esc(momRank)}</td>
+            <td><b>${esc(stock)}</b></td>
+            <td>${money(price)}</td>
+            <td>${esc(momentum)}</td>
+            <td>${num(id,4)}</td>
+            <td>${esc(signal)}</td>
+            <td>${num(weight)}%</td>
+        </tr>`;
+    }).join("");
+    document.getElementById("top50Count").textContent = top50.length;
 }
-
 
 function renderSector(){
-
-    const search =
-        document
-        .getElementById("sectorSearch")
-        .value
-        .toLowerCase();
-
-    const filtered =
-        sectorTop50.filter(row=>{
-
-            const stock =
-                String(
-                    pick(
-                        row,
-                        [
-                            "Stock",
-                            "Symbol",
-                            "Ticker"
-                        ]
-                    )
-                ).toLowerCase();
-
-            const sector =
-                String(
-                    pick(
-                        row,
-                        [
-                            "Sector"
-                        ]
-                    )
-                ).toLowerCase();
-
-            return (
-                stock.includes(search) ||
-                sector.includes(search)
-            );
-        });
-
-
-    document
-    .getElementById("sectorBody")
-    .innerHTML =
-        filtered.map(row=>{
-
-            const rank =
-                pick(
-                    row,
-                    [
-                        "Rank",
-                        "ID Rank",
-                        "Portfolio Rank"
-                    ]
-                );
-
-            const stock =
-                pick(
-                    row,
-                    [
-                        "Stock",
-                        "Symbol",
-                        "Ticker"
-                    ]
-                );
-
-            const sector =
-                pick(
-                    row,
-                    [
-                        "Sector"
-                    ]
-                );
-
-            const sectorRank =
-                pick(
-                    row,
-                    [
-                        "Sector Rank"
-                    ]
-                );
-
-            const sectorCount =
-                pick(
-                    row,
-                    [
-                        "Sector Stock Count"
-                    ]
-                );
-
-            const price =
-                pick(
-                    row,
-                    [
-                        "Live Price",
-                        "Price",
-                        "Current Price"
-                    ]
-                );
-
-            const momentum = momentumPercent(row);
-
-            const id =
-                pick(
-                    row,
-                    [
-                        "ID",
-                        "Id",
-                        "ID Score"
-                    ]
-                );
-
-            const signal =
-                pick(
-                    row,
-                    [
-                        "Signal",
-                        "Portfolio Signal"
-                    ]
-                );
-
-            return `
-            <tr>
-                <td>${rank}</td>
-                <td><b>${stock}</b></td>
-                <td>${sector}</td>
-                <td>${sectorRank}</td>
-                <td>${sectorCount}</td>
-                <td>${money(price)}</td>
-                <td>${momentum}</td>
-                <td>${num(id)}</td>
-                <td>${signal}</td>
-            </tr>
-            `;
-
-        }).join("");
-
-    document
-    .getElementById("sectorCount")
-    .textContent =
-        sectorTop50.length;
+    const search = document.getElementById("sectorSearch").value.toLowerCase();
+    const filtered = sectorTop50.filter(row=>{
+        const stock = String(pick(row,["Stock","Symbol","Ticker"])).toLowerCase();
+        const sector = String(pick(row,["Sector"])).toLowerCase();
+        return stock.includes(search) || sector.includes(search);
+    });
+    document.getElementById("sectorBody").innerHTML = filtered.map(row=>`<tr>
+        <td>${esc(pick(row,["ID Rank","Rank","Portfolio Rank"]))}</td>
+        <td><b>${esc(pick(row,["Stock","Symbol","Ticker"]))}</b></td>
+        <td>${esc(pick(row,["Sector"]))}</td>
+        <td>${esc(pick(row,["Sector Rank"]))}</td>
+        <td>${esc(pick(row,["Sector Stock Count"]))}</td>
+        <td>${money(pick(row,["Live Price","Price","Current Price"]))}</td>
+        <td>${esc(momentumPercent(row))}</td>
+        <td>${num(pick(row,["ID","Id","ID Score"]),4)}</td>
+        <td>${esc(pick(row,["Portfolio Signal","Signal"]))}</td>
+    </tr>`).join("");
+    document.getElementById("sectorCount").textContent = sectorTop50.length;
 }
-
 
 function renderAllocation(){
+    const search = document.getElementById("allocationSearch").value.toLowerCase();
+    const filtered = allocation.filter(row =>
+        String(pick(row,["Stock","Symbol","Ticker"])).toLowerCase().includes(search)
+    );
+    document.getElementById("allocationBody").innerHTML = filtered.map(row=>`<tr>
+        <td>${esc(pick(row,["Rank","ID Rank","Portfolio Rank"]))}</td>
+        <td><b>${esc(pick(row,["Stock","Symbol","Ticker"]))}</b></td>
+        <td>${esc(pick(row,["Sector"]) || "—")}</td>
+        <td>${money(pick(row,["Live Price","Price","Current Price"]))}</td>
+        <td>${money(pick(row,["Target Amount"]))}</td>
+        <td>${esc(pick(row,["Shares"]))}</td>
+        <td>${money(pick(row,["Invested Amount","Invested"]))}</td>
+        <td>${num(pick(row,["Weight %","Weight % of Capital"]))}%</td>
+    </tr>`).join("");
 
-    const search =
-        document
-        .getElementById("allocationSearch")
-        .value
-        .toLowerCase();
-
-    const filtered =
-        allocation.filter(row=>{
-
-            const stock =
-                String(
-                    pick(
-                        row,
-                        [
-                            "Stock",
-                            "Symbol",
-                            "Ticker"
-                        ]
-                    )
-                ).toLowerCase();
-
-            return stock.includes(search);
-        });
-
-
-    document
-    .getElementById("allocationBody")
-    .innerHTML =
-        filtered.map(row=>{
-
-            const rank =
-                pick(
-                    row,
-                    [
-                        "Rank",
-                        "ID Rank",
-                        "Portfolio Rank"
-                    ]
-                );
-
-            const stock =
-                pick(
-                    row,
-                    [
-                        "Stock",
-                        "Symbol",
-                        "Ticker"
-                    ]
-                );
-
-            const price =
-                pick(
-                    row,
-                    [
-                        "Live Price",
-                        "Price",
-                        "Current Price"
-                    ]
-                );
-
-            const target =
-                pick(
-                    row,
-                    [
-                        "Target Amount"
-                    ]
-                );
-
-            const shares =
-                pick(
-                    row,
-                    [
-                        "Shares"
-                    ]
-                );
-
-            const invested =
-                pick(
-                    row,
-                    [
-                        "Invested Amount",
-                        "Invested"
-                    ]
-                );
-
-            const weight =
-                pick(
-                    row,
-                    [
-                        "Weight %",
-                        "Weight % of Capital"
-                    ]
-                );
-
-            return `
-            <tr>
-                <td>${rank}</td>
-                <td><b>${stock}</b></td>
-                <td>${money(price)}</td>
-                <td>${money(target)}</td>
-                <td>${shares}</td>
-                <td>${money(invested)}</td>
-                <td>${num(weight)}%</td>
-            </tr>
-            `;
-
-        }).join("");
-
-
-    document
-    .getElementById("allocationCount")
-    .textContent =
-        allocation.length;
-
-
-    const investedTotal =
-        allocation.reduce(
-            (sum,row)=>
-                sum +
-                Number(
-                    pick(
-                        row,
-                        [
-                            "Invested Amount",
-                            "Invested"
-                        ]
-                    )
-                    || 0
-                ),
-            0
-        );
-
-
-    document
-    .getElementById("invested")
-    .textContent =
-        money(investedTotal);
-
-
-    document
-    .getElementById("cash")
-    .textContent =
-        money(
-            20000 -
-            investedTotal
-        );
+    document.getElementById("allocationCount").textContent = allocation.length;
+    const investedTotal = allocation.reduce(
+        (sum,row)=> sum + Number(pick(row,["Invested Amount","Invested"]) || 0), 0
+    );
+    document.getElementById("invested").textContent = money(investedTotal);
+    document.getElementById("cash").textContent = money(Math.max(0, DEFAULT_CAPITAL - investedTotal));
 }
-
 
 function renderSignals(){
-
-    document
-    .getElementById("signalBody")
-    .innerHTML =
-        signals
-        .slice()
-        .reverse()
-        .map(row=>{
-
-            const date =
-                pick(
-                    row,
-                    [
-                        "Run Date",
-                        "Date",
-                        "date"
-                    ]
-                );
-
-            const stock =
-                pick(
-                    row,
-                    [
-                        "Stock",
-                        "Symbol",
-                        "Ticker"
-                    ]
-                );
-
-            const signalRaw =
-                pick(
-                    row,
-                    [
-                        "Portfolio Signal",
-                        "Signal"
-                    ]
-                );
-
-            const signal = String(signalRaw ?? "")
-                .trim()
-                .toUpperCase();
-
-            let reason =
-                pick(
-                    row,
-                    [
-                        "Sell Reason",
-                        "Buy Reason",
-                        "Reason",
-                        "Message"
-                    ]
-                );
-
-            reason = String(reason ?? "").trim();
-
-            // signal_history.csv currently does not populate Buy Reason
-            // for BUY/HOLD rows, so provide a factual fallback from the
-            // recorded signal state instead of leaving the dashboard blank.
-            if (!reason) {
-                const momentumRank = pick(row, ["Momentum Rank"]);
-                const idRank = pick(row, ["ID Rank"]);
-
-                if (signal === "BUY") {
-                    reason = "New entry into Plan 2 Top 50";
-                    if (momentumRank && idRank) {
-                        reason += ` (Momentum Rank ${momentumRank}, ID Rank ${idRank})`;
-                    }
-                } else if (signal === "HOLD") {
-                    reason = "Remains in Plan 2 Top 50";
-                    if (momentumRank && idRank) {
-                        reason += ` (Momentum Rank ${momentumRank}, ID Rank ${idRank})`;
-                    }
-                } else if (signal === "SELL") {
-                    reason = "Dropped from Plan 2 Top 50";
-                } else if (signal === "ID FILTER") {
-                    reason = "Inside Top 100, but outside final Top 50";
-                } else if (signal === "WAIT") {
-                    reason = "Outside Plan 2 Top 100";
-                } else {
-                    reason = "Signal recorded; no additional reason available";
-                }
-            }
-
-            return `
-            <tr>
-                <td>${date}</td>
-                <td>${stock}</td>
-                <td>${signal}</td>
-                <td>${reason}</td>
-            </tr>
-            `;
-
-        }).join("");
+    document.getElementById("signalBody").innerHTML = signals.slice().reverse().slice(0, 200).map(row=>{
+        const date = pick(row,["Run Date","Date","date"]);
+        const stock = pick(row,["Stock","Symbol","Ticker"]);
+        const signal = String(pick(row,["Portfolio Signal","Signal"]) ?? "").trim().toUpperCase();
+        let reason = String(pick(row,["Sell Reason","Buy Reason","Reason","Message"]) ?? "").trim();
+        if(!reason){
+            const mr = pick(row,["Momentum Rank"]);
+            const ir = pick(row,["ID Rank"]);
+            if(signal === "BUY") reason = "New entry into Plan 2 Top 50" + (mr && ir ? ` (Momentum Rank ${mr}, ID Rank ${ir})` : "");
+            else if(signal === "HOLD") reason = "Remains in Plan 2 Top 50" + (mr && ir ? ` (Momentum Rank ${mr}, ID Rank ${ir})` : "");
+            else if(signal === "SELL") reason = "Dropped from Plan 2 Top 50";
+            else if(signal === "ID FILTER") reason = "Inside Top 100, outside final Top 50";
+            else if(signal === "WAIT") reason = "Outside Plan 2 Top 100";
+            else reason = "Signal recorded";
+        }
+        return `<tr>
+            <td>${esc(date)}</td>
+            <td><b>${esc(stock)}</b></td>
+            <td>${esc(signal)}</td>
+            <td class="wrap-cell">${esc(reason)}</td>
+        </tr>`;
+    }).join("");
 }
-
-
-
-/* ==============================
-   AUTOMATIC CAPITAL ALLOCATION
-   ============================== */
-
-function calculateAutoAllocation(stocks, capital){
-
-    capital = Number(capital);
-
-    if(!Number.isFinite(capital) || capital <= 0){
-        return {
-            rows: [],
-            invested: 0,
-            cash: capital || 0,
-            stockCount: 0,
-            maxPerStock: 0,
-            targetStocks: 0
-        };
-    }
-
-    const candidates = stocks
-        .map((row,index)=>{
-
-            const price = Number(
-                pick(row,[
-                    "Live Price",
-                    "Price",
-                    "Current Price"
-                ]) || 0
-            );
-
-            const rank = Number(
-                pick(row,[
-                    "Rank",
-                    "ID Rank",
-                    "Portfolio Rank"
-                ]) || index + 1
-            );
-
-            const sector = String(
-                pick(row,["Sector"]) || "Other"
-            ).trim();
-
-            const stock = String(
-                pick(row,[
-                    "Stock",
-                    "Symbol",
-                    "Ticker"
-                ]) || ""
-            ).trim();
-
-            return {
-                original: row,
-                stock,
-                sector,
-                price,
-                rank
-            };
-
-        })
-        .filter(x => x.stock && x.price > 0)
-        .sort((a,b) => a.rank - b.rank);
-
-
-    let targetStocks;
-
-    if(capital < 10000){
-        targetStocks = 5;
-    }
-    else if(capital < 20000){
-        targetStocks = 8;
-    }
-    else if(capital < 30000){
-        targetStocks = 10;
-    }
-    else if(capital < 50000){
-        targetStocks = 12;
-    }
-    else if(capital < 100000){
-        targetStocks = 15;
-    }
-    else{
-        targetStocks = 20;
-    }
-
-
-    const maxPerStock = Math.min(
-        5000,
-        Math.max(
-            1000,
-            capital * 0.075
-        )
-    );
-
-
-    const selected = [];
-    const sectorCount = {};
-
-    let invested = 0;
-
-
-    for(const candidate of candidates){
-
-        if(selected.length >= targetStocks){
-            break;
-        }
-
-        const {
-            stock,
-            sector,
-            price,
-            rank,
-            original
-        } = candidate;
-
-        if((sectorCount[sector] || 0) >= 3){
-            continue;
-        }
-
-        const remaining = capital - invested;
-
-        if(remaining < price){
-            continue;
-        }
-
-        const allowed = Math.min(
-            maxPerStock,
-            remaining
-        );
-
-        const shares = Math.floor(
-            allowed / price
-        );
-
-        if(shares < 1){
-            continue;
-        }
-
-        const amount = Number(
-            (shares * price).toFixed(2)
-        );
-
-        if(
-            amount <= 0 ||
-            amount > remaining
-        ){
-            continue;
-        }
-
-        selected.push({
-            rank,
-            stock,
-            sector,
-            price,
-            shares,
-            invested: amount,
-            weight: 0,
-            momentum:
-                pick(original,[
-                    "Momentum %",
-                    "Momentum",
-                    "Momentum Return"
-                ]),
-            id:
-                pick(original,[
-                    "ID",
-                    "Id",
-                    "ID Score"
-                ]),
-            signal:
-                pick(original,[
-                    "Signal",
-                    "Portfolio Signal"
-                ])
-        });
-
-        invested += amount;
-
-        sectorCount[sector] =
-            (sectorCount[sector] || 0) + 1;
-    }
-
-
-    /*
-    Second pass: fill remaining target slots
-    while preserving Plan 2 rank and the
-    maximum 3 stocks per sector.
-    */
-
-    if(
-        invested < capital &&
-        selected.length < targetStocks
-    ){
-
-        for(const candidate of candidates){
-
-            if(selected.length >= targetStocks){
-                break;
-            }
-
-            const alreadySelected =
-                selected.some(
-                    x => x.stock === candidate.stock
-                );
-
-            if(alreadySelected){
-                continue;
-            }
-
-            const remaining = capital - invested;
-
-            if(remaining < candidate.price){
-                continue;
-            }
-
-            if(
-                (sectorCount[candidate.sector] || 0)
-                >= 3
-            ){
-                continue;
-            }
-
-            const allowed = Math.min(
-                maxPerStock,
-                remaining
-            );
-
-            const shares = Math.floor(
-                allowed / candidate.price
-            );
-
-            if(shares < 1){
-                continue;
-            }
-
-            const amount = Number(
-                (shares * candidate.price).toFixed(2)
-            );
-
-            if(
-                amount <= 0 ||
-                amount > remaining
-            ){
-                continue;
-            }
-
-            selected.push({
-                rank: candidate.rank,
-                stock: candidate.stock,
-                sector: candidate.sector,
-                price: candidate.price,
-                shares,
-                invested: amount,
-                weight: 0,
-                momentum:
-                    pick(candidate.original,[
-                        "Momentum %",
-                        "Momentum",
-                        "Momentum Return"
-                    ]),
-                id:
-                    pick(candidate.original,[
-                        "ID",
-                        "Id",
-                        "ID Score"
-                    ]),
-                signal:
-                    pick(candidate.original,[
-                        "Signal",
-                        "Portfolio Signal"
-                    ])
-            });
-
-            invested += amount;
-
-            sectorCount[candidate.sector] =
-                (sectorCount[candidate.sector] || 0) + 1;
-        }
-    }
-
-
-    selected.sort(
-        (a,b) => a.rank - b.rank
-    );
-
-
-    selected.forEach(row => {
-
-        row.weight = Number(
-            (
-                row.invested /
-                capital *
-                100
-            ).toFixed(2)
-        );
-
-    });
-
-
-    return {
-        rows: selected,
-        invested: Number(invested.toFixed(2)),
-        cash: Number(
-            (capital - invested).toFixed(2)
-        ),
-        stockCount: selected.length,
-        maxPerStock: Number(
-            maxPerStock.toFixed(2)
-        ),
-        targetStocks
-    };
-}
-
 
 function runAutoAllocation(){
-
-    const capital = Number(
-        document
-        .getElementById("autoCapital")
-        .value
-    );
-
-    const summary =
-        document.getElementById(
-            "autoSummary"
-        );
-
-    const body =
-        document.getElementById(
-            "autoAllocationBody"
-        );
-
+    const capital = Number(document.getElementById("autoCapital").value);
+    const summary = document.getElementById("autoSummary");
+    const body = document.getElementById("autoAllocationBody");
 
     if(!Number.isFinite(capital) || capital <= 0){
-
-        summary.innerHTML =
-            "Enter a valid investment amount.";
-
+        summary.innerHTML = "Enter a valid investment amount.";
         body.innerHTML = "";
-
         return;
     }
-
-
     if(!top50 || top50.length === 0){
-
-        summary.innerHTML =
-            "Plan 2 Top 50 data is not available.";
-
+        summary.innerHTML = "Plan 2 Top 50 data is not available.";
         body.innerHTML = "";
-
         return;
     }
-
 
     const sectorMap = {};
-
-    sectorTop50.forEach(row => {
-
-        const stock = String(
-            pick(row,[
-                "Stock",
-                "Symbol",
-                "Ticker"
-            ]) || ""
-        ).trim().toUpperCase();
-
-        if(stock){
-
-            sectorMap[stock] =
-                pick(row,["Sector"]) ||
-                "Other";
-        }
+    sectorTop50.forEach(row=>{
+        const stock = String(pick(row,["Stock","Symbol","Ticker"]) || "").trim().toUpperCase();
+        if(stock) sectorMap[stock] = pick(row,["Sector"]) || "Other";
     });
 
-
-    const stocks = top50.map(row => {
-
-        const stock = String(
-            pick(row,[
-                "Stock",
-                "Symbol",
-                "Ticker"
-            ]) || ""
-        ).trim();
-
-        return {
-            ...row,
-            Sector:
-                sectorMap[stock.toUpperCase()] ||
-                "Other"
-        };
+    const stocks = top50.map(row=>{
+        const stock = String(pick(row,["Stock","Symbol","Ticker"]) || "").trim();
+        return { ...row, Sector: sectorMap[stock.toUpperCase()] || "Other" };
     });
 
-
-    const result =
-        calculateAutoAllocation(
-            stocks,
-            capital
-        );
-
-
+    const result = calculateAutoAllocation(stocks, capital);
     summary.innerHTML = `
-        <b>Capital:</b>
-        ${money(capital)}
-        &nbsp;&nbsp;
-
-        <b>Target Stocks:</b>
-        ${result.targetStocks}
-        &nbsp;&nbsp;
-
-        <b>Selected:</b>
-        ${result.stockCount}
-        &nbsp;&nbsp;
-
-        <b>Invested:</b>
-        ${money(result.invested)}
-        &nbsp;&nbsp;
-
-        <b>Cash:</b>
-        ${money(result.cash)}
+        <b>Capital:</b> ${money(capital)} &nbsp;&nbsp;
+        <b>Max/Stock:</b> ${money(result.maxPerStock)} &nbsp;&nbsp;
+        <b>Target Stocks:</b> ${result.targetStocks} &nbsp;&nbsp;
+        <b>Selected:</b> ${result.stockCount} &nbsp;&nbsp;
+        <b>Invested:</b> ${money(result.invested)} &nbsp;&nbsp;
+        <b>Cash:</b> ${money(result.cash)}
     `;
-
-
-    body.innerHTML =
-        result.rows.map(row => {
-
-            return `
-            <tr>
-                <td>${row.rank}</td>
-                <td><b>${row.stock}</b></td>
-                <td>${row.sector}</td>
-                <td>${money(row.price)}</td>
-                <td>${row.shares}</td>
-                <td>${money(row.invested)}</td>
-                <td>${num(row.weight)}%</td>
-            </tr>
-            `;
-
-        }).join("");
-
-
+    body.innerHTML = result.rows.map(row=>`<tr>
+        <td>${esc(row.rank)}</td>
+        <td><b>${esc(row.stock)}</b></td>
+        <td>${esc(row.sector)}</td>
+        <td>${money(row.price)}</td>
+        <td>${esc(row.shares)}</td>
+        <td>${money(row.invested)}</td>
+        <td>${num(row.weight)}%</td>
+    </tr>`).join("");
     if(result.rows.length === 0){
-
-        summary.innerHTML +=
-            "<br>No affordable stocks found.";
+        summary.innerHTML += "<br>No affordable stocks found within per-stock cap.";
     }
 }
 
-
-
-function aiPick(row,names){
-    for(const name of names){
-        if(row[name]!==undefined && row[name]!==null &&
-           String(row[name]).trim()!=="") return String(row[name]).trim();
-    }
-    return "";
-}
 function renderAI(){
-    const q=String(document.getElementById("aiSearch")?.value||"").toLowerCase();
-    const rows=aiData.filter(r=>aiPick(r,["Stock","Symbol","Ticker"]).toLowerCase().includes(q));
-    document.getElementById("aiBody").innerHTML=rows.map(r=>`
-        <tr>
-        <td>${aiPick(r,["Rank","Plan 2 Rank","ID Rank"])}</td>
-        <td><b>${aiPick(r,["Stock","Symbol","Ticker"])}</b></td>
-        <td>${aiPick(r,["AI View","View","Intelligence View"])||"—"}</td>
-        <td>${aiPick(r,["Why Selected","Selection Reason"])||"No selection explanation available"}</td>
-        <td>${aiPick(r,["Risk Flags","Risk Flag","Risk"])||"None recorded"}</td>
-        <td>${aiPick(r,["Evidence Confidence","Confidence"])||"—"}</td>
-        <td style="white-space:normal;min-width:280px">${aiPick(r,["AI-Style Explanation","AI Explanation","Explanation","Market Explanation"])||"No additional evidence available"}</td>
-        </tr>`).join("");
-    document.getElementById("aiCount").textContent=aiData.length;
-    document.getElementById("aiRiskCount").textContent=aiData.filter(r=>{
-        const x=aiPick(r,["Risk Flags","Risk Flag","Risk"]);
-        return x && !/^none$/i.test(x);
-    }).length;
+    const q = String(document.getElementById("aiSearch")?.value || "").toLowerCase();
+    const rows = aiData.filter(r =>
+        String(pick(r,["Stock","Symbol","Ticker"])).toLowerCase().includes(q)
+    );
+    document.getElementById("aiBody").innerHTML = rows.map(r=>`<tr>
+        <td>${esc(pick(r,["Plan 2 Rank","ID Rank","Rank"]))}</td>
+        <td><b>${esc(pick(r,["Stock","Symbol","Ticker"]))}</b></td>
+        <td>${esc(momentumPercent(r))}</td>
+        <td>${esc(pick(r,["AI View","View","Intelligence View"]) || "—")}</td>
+        <td class="wrap-cell">${esc(pick(r,["Why Selected","Selection Reason"]) || "—")}</td>
+        <td class="wrap-cell">${esc(pick(r,["Risk Flags","Risk Flag","Risk"]) || "None")}</td>
+        <td>${esc(pick(r,["Evidence Confidence","Confidence"]) || "—")}</td>
+        <td class="wrap-cell">${esc(pick(r,["AI-Style Explanation","AI Explanation","Explanation"]) || "—")}</td>
+    </tr>`).join("");
+    document.getElementById("aiCount").textContent = aiData.length;
+    document.getElementById("aiRiskCount").textContent = aiData.filter(r =>
+        hasRealRiskFlag(pick(r,["Risk Flags","Risk Flag","Risk"]))
+    ).length;
 }
+
 function renderAISummary(){
-    const r=aiSummary[0]||{};
-    const pct = (v) => {
+    const r = aiSummary[0] || {};
+    const pct = (v)=>{
         const n = Number(String(v ?? "").replace(/[^0-9.+-]/g,""));
         return Number.isFinite(n) ? n.toFixed(2) : "N/A";
     };
-    const m20 = Number(String(aiPick(r,["Market 20D %"])||"").replace(/[^0-9.+-]/g,""));
-    let view = aiPick(r,["Market View","Overall Market View","View"]);
+    const m20 = Number(String(pick(r,["Market 20D %"]) || "").replace(/[^0-9.+-]/g,""));
+    let view = pick(r,["Market View","Overall Market View","View"]);
     if(!view){
-        if(Number.isFinite(m20)) view = m20 > 3 ? "Positive market context" : (m20 < -3 ? "Weak market context" : "Mixed market context");
-        else view = "Available";
+        view = Number.isFinite(m20)
+            ? (m20 > 3 ? "Positive market context" : (m20 < -3 ? "Weak market context" : "Mixed market context"))
+            : "Available";
     }
-    document.getElementById("aiMarketView").textContent=view;
-
-    const proxy = aiPick(r,["Market Proxy"]) || "Market proxy unavailable";
-    const d1 = aiPick(r,["Market 1D %"]);
-    const d5 = aiPick(r,["Market 5D %"]);
-    const d20 = aiPick(r,["Market 20D %"]);
-    const news = aiPick(r,["News Evidence Stocks"]) || "0";
+    document.getElementById("aiMarketView").textContent = view;
+    const proxy = pick(r,["Market Proxy"]) || "Market proxy unavailable";
+    const news = pick(r,["News Evidence Stocks"]) || "0";
+    const buys = pick(r,["BUY"]) || "0";
+    const holds = pick(r,["HOLD"]) || "0";
     document.getElementById("aiMarketSummary").textContent =
-        `${proxy} | 1D: ${pct(d1)}% | 5D: ${pct(d5)}% | 20D: ${pct(d20)}% | Stocks with news evidence: ${news}`;
+        `${proxy} | 1D: ${pct(pick(r,["Market 1D %"]))}% | 5D: ${pct(pick(r,["Market 5D %"]))}% | 20D: ${pct(pick(r,["Market 20D %"]))}% | BUY: ${buys} | HOLD: ${holds} | News evidence stocks: ${news}`;
 }
+
+function renderResearch(){
+    const q = String(document.getElementById("researchSearch")?.value || "").toLowerCase();
+    const rows = researchData.filter(r =>
+        String(pick(r,["Stock","stock"])).toLowerCase().includes(q)
+    );
+    const el = document.getElementById("researchBody");
+    if(!rows.length){
+        el.innerHTML = '<tr><td colspan="6">No matching deep research records.</td></tr>';
+        return;
+    }
+    el.innerHTML = rows.map(r=>`<tr>
+        <td><b>${esc(pick(r,["Stock","stock"]))}</b></td>
+        <td>${esc(pick(r,["evidence_confidence"]) || "—")}</td>
+        <td class="wrap-cell">${esc(pick(r,["executive_summary"]) || "—")}</td>
+        <td class="wrap-cell">${esc(pick(r,["fundamental_picture"]) || "—")}</td>
+        <td class="wrap-cell">${esc(pick(r,["quarterly_picture"]) || "—")}</td>
+        <td class="wrap-cell">${esc(pick(r,["risk_flags"]) || "None")}</td>
+    </tr>`).join("");
+}
+
 async function loadAI(){
     try{
-        aiData=await loadCSV("advanced_market_intelligence.csv");
-        try{aiSummary=await loadCSV("market_intelligence_summary.csv");}
-        catch(e){aiSummary=[];}
+        aiData = await loadCSV("advanced_market_intelligence.csv");
+        try{ aiSummary = await loadCSV("market_intelligence_summary.csv"); }
+        catch(e){ aiSummary = []; }
         renderAISummary();
         renderAI();
     }catch(e){
-        aiData=[];
-        aiSummary=[];
-        document.getElementById("aiCount").textContent="0";
-        document.getElementById("aiMarketView").textContent="Unavailable";
-        document.getElementById("aiMarketSummary").textContent=
-            "Advanced market intelligence data is not available.";
-        document.getElementById("aiBody").innerHTML=
-            '<tr><td colspan="7">AI / Market Intelligence data unavailable for this run.</td></tr>';
+        aiData = [];
+        aiSummary = [];
+        document.getElementById("aiCount").textContent = "0";
+        document.getElementById("aiMarketView").textContent = "Unavailable";
+        document.getElementById("aiMarketSummary").textContent = "Advanced market intelligence data is not available.";
+        document.getElementById("aiBody").innerHTML = '<tr><td colspan="8">AI / Market Intelligence data unavailable for this run.</td></tr>';
     }
 }
 
-function renderAIUnavailable(){
-    const el = document.getElementById("aiBody");
-    if (el) {
-        el.innerHTML = '<tr><td colspan="7">AI/Market Intelligence data is temporarily unavailable. Plan 2 dashboard remains active.</td></tr>';
+async function loadResearch(){
+    try{
+        researchData = await loadCSV("stock_research_ai.csv");
+        renderResearch();
+    }catch(e){
+        researchData = [];
+        document.getElementById("researchBody").innerHTML = '<tr><td colspan="6">Deep stock research data unavailable for this run.</td></tr>';
     }
 }
 
 async function loadDashboard(){
-
     try{
+        top50 = await loadCSV("live_plan2_top50.csv");
+        sectorTop50 = await loadCSV("sector_wise_top50.csv");
+        allocation = await loadCSV("capital_auto_allocation.csv");
+        signals = await loadCSV("signal_history.csv");
 
-        top50 =
-            await loadCSV(
-                "live_plan2_top50.csv"
-            );
-
-        sectorTop50 =
-            await loadCSV(
-                "sector_wise_top50.csv"
-            );
-
-        allocation =
-            await loadCSV(
-                "capital_auto_allocation.csv"
-            );
-
-        signals =
-            await loadCSV(
-                "signal_history.csv"
-            );
-
-        // Core dashboard must render even if optional AI files are unavailable.
         renderTop50();
         renderSector();
         renderAllocation();
         renderSignals();
         runAutoAllocation();
 
-        try {
-            await loadAI();
-            renderAI();
-        } catch (aiError) {
-            console.warn("Optional AI data unavailable:", aiError);
-            renderAIUnavailable();
-        }
-
-    }
-    catch(error){
-
-        console.error(
-            "Dashboard error:",
-            error
-        );
+        await Promise.all([loadAI(), loadResearch()]);
+    }catch(error){
+        console.error("Dashboard error:", error);
     }
 }
 
-
 loadDashboard();
-
-
-setInterval(
-    loadDashboard,
-    5 * 60 * 1000
-);
-
+setInterval(loadDashboard, 5 * 60 * 1000);
 </script>
-
 </body>
 </html>
