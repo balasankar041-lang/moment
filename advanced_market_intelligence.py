@@ -5,29 +5,17 @@ Evidence-first intelligence for Plan 2 Top 50 stocks.
 
 No paid AI/API key required.
 
-Adds:
-- Plan 2 selection explanation
-- Momentum / ID quality
-- Risk flags
-- Recent price behaviour (when yfinance is available)
-- Volume anomaly
-- Market context (Nifty 500 proxy via ^CRSLDX when available)
-- Sector context from sector_wise_top50.csv
-- News headline collection from Yahoo RSS when network access is available
-- Evidence-based catalyst labels; never invents a reason
-- Overall market summary
-- Stock-level concise explanation
-
-This module NEVER changes Plan 2 ranking or ₹20,000 allocation.
+This module NEVER changes Plan 2 ranking or capital allocation.
 """
 
 from pathlib import Path
 from urllib.parse import quote
-import xml.etree.ElementTree as ET
-import urllib.request
 import ssl
-import pandas as pd
+import urllib.request
+import xml.etree.ElementTree as ET
+
 import numpy as np
+import pandas as pd
 
 TOP50 = Path("live_plan2_top50.csv")
 SECTORS = Path("sector_wise_top50.csv")
@@ -42,20 +30,52 @@ except Exception:
 UA = "Mozilla/5.0 (compatible; Plan2MarketIntelligence/1.0)"
 
 
-def get(row, *names, default=np.nan):
+def get_num(row, *names, default=np.nan):
     for name in names:
         if name in row.index:
             v = row[name]
-            if pd.notna(v) and str(v).strip():
+            if pd.notna(v) and str(v).strip() != "":
                 try:
-                    return float(v)
+                    return float(str(v).replace(",", "").replace("%", "").strip())
                 except Exception:
-                    return v
+                    continue
     return default
 
 
+def get_str(row, *names, default=""):
+    for name in names:
+        if name in row.index:
+            v = row[name]
+            if pd.notna(v) and str(v).strip() != "":
+                return str(v).strip()
+    return default
+
+
+def get_momentum_pct(row):
+    """Return 12-2 momentum as percentage points (e.g. 301.20 for 301.20%)."""
+    if "Momentum 12-2" in row.index:
+        raw = row["Momentum 12-2"]
+        if pd.notna(raw) and str(raw).strip() != "":
+            text = str(raw).strip()
+            has_pct = "%" in text
+            val = float(text.replace(",", "").replace("%", "").strip())
+            return val if has_pct else val * 100.0
+
+    for col in ("Momentum %", "Momentum Return %", "Momentum", "Momentum_Return"):
+        if col in row.index:
+            raw = row[col]
+            if pd.notna(raw) and str(raw).strip() != "":
+                text = str(raw).strip()
+                has_pct = "%" in text
+                val = float(text.replace(",", "").replace("%", "").strip())
+                if has_pct or "%" in col:
+                    return val
+                return val * 100.0
+    return np.nan
+
+
 def stock_name(row):
-    return str(row.get("Stock", row.get("Symbol", row.get("Ticker", "")))).strip()
+    return get_str(row, "Stock", "Symbol", "Ticker")
 
 
 def fetch_news(symbol):
@@ -94,7 +114,7 @@ def price_context(symbol):
         ret20 = float(close.iloc[-1] / close.iloc[-21] - 1) * 100 if len(close) >= 21 else np.nan
         avg20v = float(vol.tail(20).mean()) if len(vol) >= 20 else np.nan
         lastv = float(vol.iloc[-1]) if len(vol) else np.nan
-        vol_ratio = lastv / avg20v if avg20v > 0 else np.nan
+        vol_ratio = lastv / avg20v if (np.isfinite(avg20v) and avg20v > 0) else np.nan
         high20 = float(close.tail(20).max())
         low20 = float(close.tail(20).min())
         return {
@@ -115,7 +135,7 @@ def market_context():
         return {}
     for ticker in ["^CRSLDX", "^NSEI"]:
         try:
-            d = yf.Ticker(ticker).history(period="1mo", auto_adjust=False)
+            d = yf.Ticker(ticker).history(period="2mo", auto_adjust=False)
             c = d["Close"].dropna()
             if len(c) >= 6:
                 return {
@@ -143,36 +163,14 @@ def momentum_quality(x):
     return "Negative"
 
 
-if not TOP50.exists():
-    raise SystemExit("live_plan2_top50.csv not found")
-
-df = pd.read_csv(TOP50)
-if df.empty:
-    pd.DataFrame().to_csv(OUT, index=False)
-    raise SystemExit("Top50 is empty")
-
-sector_map = {}
-if SECTORS.exists():
-    sec = pd.read_csv(SECTORS)
-    for _, r in sec.iterrows():
-        s = stock_name(r)
-        if s:
-            sector_map[s] = str(r.get("Sector", "Miscellaneous"))
-
-mkt = market_context()
-rows = []
-
-for _, r in df.iterrows():
+def build_row(r, sector_map, pc, headlines, mkt):
     symbol = stock_name(r)
-    momentum = get(r, "Momentum %", "Momentum", "Momentum_Return")
-    ident = get(r, "ID", "Id")
-    mrank = get(r, "Momentum Rank", "Momentum_Rank", "Rank")
-    idrank = get(r, "ID Rank", "ID_Rank")
-    signal = str(r.get("Signal", "HOLD")).upper()
-    sector = sector_map.get(symbol, "Miscellaneous")
-
-    pc = price_context(symbol)
-    headlines = fetch_news(symbol)
+    momentum = get_momentum_pct(r)
+    ident = get_num(r, "ID", "Id", "ID Score")
+    mrank = get_num(r, "Momentum Rank", "Momentum_Rank")
+    idrank = get_num(r, "ID Rank", "ID_Rank", "Rank", "Plan 2 Rank")
+    signal = get_str(r, "Portfolio Signal", "Signal", default="HOLD").upper()
+    sector = sector_map.get(symbol, get_str(r, "Sector", default="Miscellaneous"))
 
     evidence = []
     risks = []
@@ -180,7 +178,7 @@ for _, r in df.iterrows():
     if np.isfinite(mrank):
         evidence.append(f"momentum rank #{int(mrank)}")
     if np.isfinite(momentum):
-        evidence.append(f"12–2M momentum {momentum:.1f}%")
+        evidence.append(f"12-2M momentum {momentum:.2f}%")
     if np.isfinite(idrank):
         evidence.append(f"ID rank #{int(idrank)}")
     if np.isfinite(ident):
@@ -196,9 +194,19 @@ for _, r in df.iterrows():
 
     price_reason = "Recent price data unavailable"
     if pc:
-        r1, r5, r20 = pc.get("1D Return %"), pc.get("5D Return %"), pc.get("20D Return %")
-        vr = pc.get("Volume vs 20D Avg")
-        price_reason = f"1D {r1:+.2f}%, 5D {r5:+.2f}%, 20D {r20:+.2f}%"
+        r1 = pc.get("1D Return %", np.nan)
+        r5 = pc.get("5D Return %", np.nan)
+        r20 = pc.get("20D Return %", np.nan)
+        vr = pc.get("Volume vs 20D Avg", np.nan)
+        parts = []
+        if np.isfinite(r1):
+            parts.append(f"1D {r1:+.2f}%")
+        if np.isfinite(r5):
+            parts.append(f"5D {r5:+.2f}%")
+        if np.isfinite(r20):
+            parts.append(f"20D {r20:+.2f}%")
+        if parts:
+            price_reason = ", ".join(parts)
         if np.isfinite(vr) and vr >= 2:
             price_reason += f"; unusual volume ({vr:.1f}x 20D average)"
             evidence.append("unusual volume")
@@ -220,7 +228,6 @@ for _, r in df.iterrows():
     else:
         action = "HOLD / CONTINUES"
 
-    # No headline is interpreted as no catalyst, not as a negative catalyst.
     if headlines:
         catalyst = "News evidence available; headline requires manual verification."
     else:
@@ -235,67 +242,89 @@ for _, r in df.iterrows():
         f"{catalyst}"
     )
 
-    why_selected = (
-        f"Plan 2 Top 50: momentum rank {mrank if np.isfinite(mrank) else 'N/A'}, "
-        f"ID rank {idrank if np.isfinite(idrank) else 'N/A'}, "
-        f"momentum {momentum:.2f}%."
-        if np.isfinite(momentum)
-        else (
-            f"Plan 2 Top 50: momentum rank {mrank if np.isfinite(mrank) else 'N/A'}, "
-            f"ID rank {idrank if np.isfinite(idrank) else 'N/A'}."
+    mrank_str = f"#{int(mrank)}" if np.isfinite(mrank) else "N/A"
+    idrank_str = f"#{int(idrank)}" if np.isfinite(idrank) else "N/A"
+    if np.isfinite(momentum):
+        why_selected = (
+            f"Plan 2 Top 50: ID rank {idrank_str}, momentum rank {mrank_str}, "
+            f"12-2M momentum {momentum:.2f}%."
         )
-    )
+    else:
+        why_selected = f"Plan 2 Top 50: ID rank {idrank_str}, momentum rank {mrank_str}."
 
-    # Confidence is evidence availability, not a prediction or recommendation.
-    confidence_parts = 0
-    if pc:
-        confidence_parts += 1
-    if mkt:
-        confidence_parts += 1
-    if headlines:
-        confidence_parts += 1
+    confidence_parts = int(bool(pc)) + int(bool(mkt)) + int(bool(headlines))
     confidence = "High" if confidence_parts >= 3 else ("Medium" if confidence_parts >= 1 else "Low")
 
-    # Keep the AI View descriptive: report the Plan 2 signal and available
-    # evidence rather than turning the layer into a new trading rule.
-    quality_view = mq if mq and str(mq).strip().lower() != "unknown" else ""
+    quality_view = mq if mq and mq.lower() != "unknown" else ""
     ai_view = f"{action}" + (f"; {quality_view}" if quality_view else "")
 
-    rows.append({
+    return {
+        "Plan 2 Rank": int(idrank) if np.isfinite(idrank) else np.nan,
         "Stock": symbol,
         "Sector": sector,
         "Signal": signal,
-        "Momentum %": momentum,
+        "Momentum %": round(momentum, 2) if np.isfinite(momentum) else np.nan,
         "Momentum Quality": mq,
-        "Momentum Rank": mrank,
+        "Momentum Rank": int(mrank) if np.isfinite(mrank) else np.nan,
         "ID": ident,
-        "ID Rank": idrank,
+        "ID Rank": int(idrank) if np.isfinite(idrank) else np.nan,
         **pc,
         **mkt,
         "AI View": ai_view,
         "Why Selected": why_selected,
-        "Risk Flags": "; ".join(risks) if risks else "No major Plan 2 risk flag",
+        "Risk Flags": "; ".join(risks) if risks else "None",
         "Evidence Confidence": confidence,
         "News Evidence": news_text,
         "Catalyst Assessment": catalyst,
         "AI-Style Explanation": explanation,
-    })
+    }
 
-out = pd.DataFrame(rows)
-out.to_csv(OUT, index=False)
 
-summary = pd.DataFrame([{
-    "Top 50 Stocks": len(out),
-    "BUY": int((out["Signal"] == "BUY").sum()),
-    "HOLD": int((out["Signal"] == "HOLD").sum()),
-    "SELL": int((out["Signal"] == "SELL").sum()),
-    "News Evidence Stocks": int((out["News Evidence"] != "No public headline evidence retrieved").sum()),
-    "Market Proxy": mkt.get("Market Proxy", "Unavailable"),
-    "Market 1D %": mkt.get("Market 1D %", np.nan),
-    "Market 5D %": mkt.get("Market 5D %", np.nan),
-    "Market 20D %": mkt.get("Market 20D %", np.nan),
-}])
-summary.to_csv(SUMMARY, index=False)
+def main():
+    if not TOP50.exists():
+        raise SystemExit("live_plan2_top50.csv not found")
 
-print(f"Created {OUT} with {len(out)} stocks")
-print(f"Created {SUMMARY}")
+    df = pd.read_csv(TOP50)
+    if df.empty:
+        pd.DataFrame().to_csv(OUT, index=False)
+        raise SystemExit("Top50 is empty")
+
+    sector_map = {}
+    if SECTORS.exists():
+        sec = pd.read_csv(SECTORS)
+        for _, r in sec.iterrows():
+            s = stock_name(r)
+            if s:
+                sector_map[s] = get_str(r, "Sector", default="Miscellaneous")
+
+    mkt = market_context()
+    rows = []
+
+    for _, r in df.iterrows():
+        symbol = stock_name(r)
+        pc = price_context(symbol)
+        headlines = fetch_news(symbol)
+        rows.append(build_row(r, sector_map, pc, headlines, mkt))
+
+    out = pd.DataFrame(rows)
+    out.to_csv(OUT, index=False)
+
+    summary = pd.DataFrame([{
+        "Top 50 Stocks": len(out),
+        "BUY": int((out["Signal"] == "BUY").sum()),
+        "HOLD": int((out["Signal"] == "HOLD").sum()),
+        "SELL": int((out["Signal"] == "SELL").sum()),
+        "News Evidence Stocks": int((out["News Evidence"] != "No public headline evidence retrieved").sum()),
+        "Market Proxy": mkt.get("Market Proxy", "Unavailable"),
+        "Market 1D %": mkt.get("Market 1D %", np.nan),
+        "Market 5D %": mkt.get("Market 5D %", np.nan),
+        "Market 20D %": mkt.get("Market 20D %", np.nan),
+    }])
+    summary.to_csv(SUMMARY, index=False)
+
+    print(f"Created {OUT} with {len(out)} stocks")
+    print(f"Created {SUMMARY}")
+
+
+if __name__ == "__main__":
+    main()
