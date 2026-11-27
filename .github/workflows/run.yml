@@ -40,6 +40,9 @@ jobs:
       - name: Run live Plan 2 screener
         run: python main.py
 
+      - name: Create sector-wise Plan 2 Top 50
+        run: python sector_wise_top50.py
+
       - name: Run Advanced Market Intelligence
         run: python advanced_market_intelligence.py
 
@@ -48,8 +51,8 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python stock_research_engine.py
 
-      - name: Create sector-wise Plan  Top 50
-        run: python sector_wise_top50.py
+      - name: Run ₹20,000 capital execution allocation
+        run: python capital_execution_test.py
 
       - name: Save live dashboard data
         run: |
@@ -66,7 +69,9 @@ jobs:
           git add market_intelligence_summary.csv
           git add stock_research_ai.csv
           git add stock_research_sources.csv
-          git add ipo_watchlist.csv 2>/dev/null || true
+          git add capital_auto_allocation.csv
+          git add capital_execution_test.csv
+          git add ipo_watchlist.csv ipo_watch.csv 2>/dev/null || true
 
           if [ -f ipo_auto_discovered.csv ]; then
             git add ipo_auto_discovered.csv
@@ -75,31 +80,13 @@ jobs:
           if git diff --cached --quiet; then
             echo "No live dashboard changes."
           else
-            git commit -m "Update Plan 2 live dashboard"
+            git commit -m "Update Plan 2 live dashboard and allocation"
             git pull --rebase origin main
             git push
           fi
 
       - name: Run Plan 2 historical backtest
         run: python backtest_id.py
-
-      - name: Run ₹20,000 capital execution test
-        run: python capital_execution_test.py
-
-      - name: Save latest capital allocation
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@github.com"
-
-          git add capital_auto_allocation.csv
-
-          if git diff --cached --quiet; then
-            echo "No capital allocation changes."
-          else
-            git commit -m "Update ₹20,000 capital allocation"
-            git pull --rebase origin main
-            git push
-          fi
 
       - name: Walk-forward validation
         run: python walk_forward.py
@@ -125,6 +112,7 @@ jobs:
           test -f sector_wise_top50.csv
           test -f ipo_watch.csv
           test -f capital_auto_allocation.csv
+          test -f capital_execution_test.csv
           test -f advanced_market_intelligence.csv
           test -f market_intelligence_summary.csv
           test -f stock_research_ai.csv
