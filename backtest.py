@@ -1,6 +1,9 @@
-
 import logging
 import warnings
+try:
+    from price_cache import load_cache
+except Exception:
+    load_cache = None
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +35,7 @@ membership = pd.read_csv(MEMBERSHIP_FILE)
 membership["effective_date"] = pd.to_datetime(membership["effective_date"], errors="coerce")
 membership["symbol"] = membership["symbol"].astype(str).str.strip().str.upper()
 membership = membership.dropna(subset=["effective_date"])
-membership = membership[membership["symbol"].str.match(r"^[A-Z0-9]+$")]
+membership = membership[membership["symbol"].str.match(r"^[A-Z0-9&\-]{2,20}$") & ~membership["symbol"].str.endswith("&") & ~membership["symbol"].str.startswith("&")]
 membership = membership.drop_duplicates(["effective_date", "symbol"])
 membership = membership.sort_values(["effective_date", "symbol"])
 
@@ -95,18 +98,26 @@ def download_batch(batch):
             pass
     return pd.DataFrame()
 
-frames = []
-for i in range(0, len(symbols), BATCH_SIZE):
-    batch = symbols[i:i+BATCH_SIZE]
-    print(f"Downloading {i+1}-{min(i+BATCH_SIZE, len(symbols))}")
-    frame = download_batch(batch)
-    if not frame.empty:
-        frames.append(frame)
+prices = pd.DataFrame()
+if load_cache is not None:
+    c_cache, _ = load_cache(with_ns_suffix=True)
+    if c_cache is not None and not c_cache.empty:
+        cols = [s for s in symbols if s in c_cache.columns]
+        if len(cols) / max(1, len(symbols)) >= 0.80:
+            print(f"Using cached prices: {len(cols)}/{len(symbols)} symbols")
+            prices = c_cache[cols]
 
-if not frames:
-    raise RuntimeError("No Yahoo Finance price data was downloaded.")
-
-prices = pd.concat(frames, axis=1, sort=True)
+if prices.empty:
+    frames = []
+    for i in range(0, len(symbols), BATCH_SIZE):
+        batch = symbols[i:i+BATCH_SIZE]
+        print(f"Downloading {i+1}-{min(i+BATCH_SIZE, len(symbols))}")
+        frame = download_batch(batch)
+        if not frame.empty:
+            frames.append(frame)
+    if not frames:
+        raise RuntimeError("No Yahoo Finance price data was downloaded.")
+    prices = pd.concat(frames, axis=1, sort=True)
 prices = prices.loc[:, ~prices.columns.duplicated()]
 prices = prices.sort_index()
 
