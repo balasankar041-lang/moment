@@ -8,6 +8,13 @@ This layer DOES NOT change:
 - BUY/HOLD/SELL signal
 - Capital allocation
 
+Configured for Groq free/on-demand tier (openai/gpt-oss-20b, 8,000 TPM):
+- Uses reasoning_effort="low" and include_reasoning=False so reasoning tokens
+  do not exhaust completion budget.
+- Omits brittle server-side json_object validation and parses JSON cleanly in Python.
+- Sends a compact evidence payload (~400 tokens) and paces requests + respects
+  HTTP 429 Retry-After headers to stay within the 8,000 TPM limit.
+
 Outputs:
     stock_research_ai.csv
     stock_research_sources.csv
@@ -15,6 +22,7 @@ Outputs:
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -30,21 +38,12 @@ OUT = Path("stock_research_ai.csv")
 SOURCES_OUT = Path("stock_research_sources.csv")
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip() or "llama-3.3-70b-versatile"
-FALLBACK_MODELS = [
-    DEFAULT_MODEL,
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "openai/gpt-oss-20b",
-]
-# Deduplicate preserving order
-MODELS = list(dict.fromkeys(FALLBACK_MODELS))
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
 
-OFFICIAL_SOURCE_LINKS = {
-    "NSE Corporate Filings": "https://www.nseindia.com/companies-listing/corporate-filings-announcements",
-    "SEBI Circulars": "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&smid=0SEBI&ssid=7",
-    "RBI Press Releases": "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx",
-}
+# Free tier for openai/gpt-oss-20b is 8,000 TPM.
+# Compact prompt + concise JSON output uses ~1,000-1,200 tokens/request.
+# Pacing at ~10s per stock keeps throughput comfortably under 8,000 TPM.
+REQUEST_PACE_SECONDS = float(os.getenv("GROQ_PACE_SECONDS", "10.0"))
 
 STRING_FIELDS = [
     "executive_summary",
@@ -82,16 +81,18 @@ def s(v):
     return str(v).strip()
 
 
-def num(v):
+def num(v, digits=2):
     try:
         val = float(v)
-        return val if pd.notna(val) else None
+        if pd.isna(val):
+            return None
+        return round(val, digits)
     except Exception:
         return None
 
 
 def safe_json(obj):
-    return json.dumps(obj, ensure_ascii=False, default=str)
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 def load_csv(path):
@@ -149,7 +150,8 @@ def get_plan2_data():
                     top["Sector"] = top["Sector"].fillna(top["Sector_sector"])
                 top.drop(columns=["Sector_sector"], inplace=True)
 
-    return top.fillna("")
+    # Avoid Pandas4Warning when filling mixed float64/object columns
+    return top.astype(object).fillna("")
 
 
 def price_and_volume(symbol):
@@ -162,7 +164,7 @@ def price_and_volume(symbol):
             threads=False,
         )
         if df.empty:
-            return {"data_status": "unavailable"}
+            return {"status": "unavailable"}
 
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -174,114 +176,83 @@ def price_and_volume(symbol):
         def ret(days):
             if len(close) <= days:
                 return None
-            return round(float((close.iloc[-1] / close.iloc[-days - 1] - 1) * 100), 2)
+            return round(float((close.iloc[-1] / close.iloc[-days - 1] - 1) * 100), 1)
 
         avg20 = volume.tail(20).mean() if len(volume) else None
         lastvol = volume.iloc[-1] if len(volume) else None
 
-        return {
-            "data_status": "available",
+        out = {
+            "status": "ok",
             "price": round(float(close.iloc[-1]), 2),
-            "return_1d_pct": ret(1),
-            "return_5d_pct": ret(5),
-            "return_20d_pct": ret(20),
-            "return_3m_pct": ret(63),
-            "return_6m_pct": ret(126),
-            "return_1y_pct": ret(252),
-            "high_52w": round(float(close.tail(252).max()), 2),
-            "low_52w": round(float(close.tail(252).min()), 2),
-            "volume_last": num(lastvol),
-            "volume_avg20": num(avg20),
-            "volume_ratio": round(float(lastvol) / float(avg20), 2) if avg20 and avg20 > 0 else None,
+            "r1d": ret(1),
+            "r5d": ret(5),
+            "r20d": ret(20),
+            "r3m": ret(63),
+            "r1y": ret(252),
+            "hi52w": round(float(close.tail(252).max()), 2),
+            "lo52w": round(float(close.tail(252).min()), 2),
+            "vol_ratio": round(float(lastvol) / float(avg20), 2) if avg20 and avg20 > 0 else None,
         }
-    except Exception as exc:
-        return {"data_status": "error", "error": str(exc)[:200]}
+        return {k: v for k, v in out.items() if v is not None}
+    except Exception:
+        return {"status": "error"}
 
 
 def fundamentals(symbol):
-    out = {"data_status": "unavailable"}
+    out = {"status": "unavailable"}
     try:
         t = yf.Ticker(symbol + ".NS")
         info = t.info or {}
-        keys = [
-            "marketCap", "enterpriseValue", "trailingPE", "forwardPE",
-            "priceToBook", "enterpriseToEbitda", "returnOnEquity",
-            "returnOnAssets", "debtToEquity", "profitMargins",
-            "operatingMargins", "grossMargins", "revenueGrowth",
-            "earningsGrowth", "dividendYield", "bookValue",
-            "trailingEps", "forwardEps", "sharesOutstanding",
-            "heldPercentInsiders", "heldPercentInstitutions",
-        ]
-        for k in keys:
-            if k in info and info[k] is not None:
-                out[k] = info[k]
-        out["sector_yf"] = info.get("sector", "")
-        out["industry_yf"] = info.get("industry", "")
-        out["data_status"] = "available" if len(out) > 3 else "unavailable"
-    except Exception as exc:
-        out["error"] = str(exc)[:200]
+        key_map = {
+            "marketCap": "mcap_cr",
+            "trailingPE": "pe",
+            "forwardPE": "fpe",
+            "priceToBook": "pb",
+            "returnOnEquity": "roe",
+            "debtToEquity": "de",
+            "profitMargins": "pm",
+            "operatingMargins": "om",
+            "revenueGrowth": "rev_g",
+            "earningsGrowth": "earn_g",
+            "dividendYield": "div_y",
+        }
+        for raw_k, short_k in key_map.items():
+            val = info.get(raw_k)
+            if val is not None:
+                if raw_k == "marketCap":
+                    out[short_k] = num(float(val) / 1e7, 0)
+                else:
+                    out[short_k] = num(val, 2)
+        if info.get("industry"):
+            out["industry"] = s(info.get("industry"))
+        if len(out) > 1:
+            out["status"] = "ok"
+    except Exception:
+        pass
     return out
 
 
 def quarterly_data(symbol):
-    result = {"data_status": "unavailable", "quarters": []}
+    result = {"status": "unavailable", "q": []}
     try:
         t = yf.Ticker(symbol + ".NS")
         q = t.quarterly_income_stmt
         if q is None or q.empty:
             return result
-        q = q.iloc[:, :4]
-        wanted = [
-            "Total Revenue", "Operating Revenue", "EBITDA",
-            "EBIT", "Net Income", "Diluted EPS", "Basic EPS",
-        ]
+        q = q.iloc[:, :2]  # Latest 2 quarters to keep token count small
         rows = []
         for col in q.columns:
-            item = {"period": str(col)}
-            for field in wanted:
+            item = {"p": str(col)[:10]}
+            for field, short in (("Total Revenue", "rev_cr"), ("Net Income", "ni_cr"), ("Diluted EPS", "eps")):
                 if field in q.index:
                     value = q.loc[field, col]
                     if pd.notna(value):
-                        item[field] = float(value)
+                        item[short] = round(float(value) / 1e7, 1) if short.endswith("_cr") else round(float(value), 2)
             rows.append(item)
-        result["data_status"] = "available"
-        result["quarters"] = rows
-    except Exception as exc:
-        result["error"] = str(exc)[:200]
-    return result
-
-
-def balance_cashflow(symbol):
-    result = {"data_status": "unavailable", "balance_sheet": {}, "cash_flow": {}}
-    try:
-        t = yf.Ticker(symbol + ".NS")
-        bs = t.balance_sheet
-        cf = t.cashflow
-
-        def latest(table, names):
-            if table is None or table.empty:
-                return None
-            for name in names:
-                if name in table.index:
-                    value = table.loc[name].iloc[0]
-                    if pd.notna(value):
-                        return float(value)
-            return None
-
-        result["balance_sheet"] = {
-            "total_assets": latest(bs, ["Total Assets"]),
-            "total_debt": latest(bs, ["Total Debt", "Long Term Debt And Capital Lease Obligation"]),
-            "cash": latest(bs, ["Cash Cash Equivalents And Short Term Investments"]),
-            "equity": latest(bs, ["Stockholders Equity", "Common Stock Equity"]),
-        }
-        result["cash_flow"] = {
-            "operating_cashflow": latest(cf, ["Operating Cash Flow"]),
-            "free_cashflow": latest(cf, ["Free Cash Flow"]),
-            "capital_expenditure": latest(cf, ["Capital Expenditure"]),
-        }
-        result["data_status"] = "available"
-    except Exception as exc:
-        result["error"] = str(exc)[:200]
+        result["status"] = "ok"
+        result["q"] = rows
+    except Exception:
+        pass
     return result
 
 
@@ -312,36 +283,26 @@ def recent_news(symbol):
     return result
 
 
-def macro_context():
-    return {
-        "official_sources": OFFICIAL_SOURCE_LINKS,
-        "note": (
-            "Current policy/global event text is only included when fetched "
-            "successfully from a source. Otherwise report as Not established."
-        ),
-    }
-
-
 def risk_flags(price, fund, quarterly):
     flags = []
-    vr = price.get("volume_ratio")
+    vr = price.get("vol_ratio")
     if vr is not None and vr >= 3:
         flags.append("Unusual volume")
-    dte = fund.get("debtToEquity")
+    dte = fund.get("de")
     if dte is not None and dte > 150:
         flags.append("High debt/equity")
-    pe = fund.get("trailingPE")
+    pe = fund.get("pe")
     if pe is not None and pe > 60:
         flags.append("High trailing P/E")
-    rg = fund.get("revenueGrowth")
+    rg = fund.get("rev_g")
     if rg is not None and rg < 0:
         flags.append("Negative revenue growth")
-    eg = fund.get("earningsGrowth")
+    eg = fund.get("earn_g")
     if eg is not None and eg < 0:
         flags.append("Negative earnings growth")
-    if quarterly.get("data_status") != "available":
+    if quarterly.get("status") != "ok":
         flags.append("Quarterly data unavailable")
-    if price.get("data_status") != "available":
+    if price.get("status") != "ok":
         flags.append("Price data unavailable")
     return flags
 
@@ -351,27 +312,73 @@ def collect_stock(row):
     price = price_and_volume(symbol)
     fund = fundamentals(symbol)
     qtr = quarterly_data(symbol)
-    bs = balance_cashflow(symbol)
-    news = recent_news(symbol)
+    news_full = recent_news(symbol)
 
-    plan2_keys = [
-        "Momentum 12-2", "Momentum %", "Momentum Rank", "ID", "ID Rank",
-        "Portfolio Signal", "Signal", "Live Price", "Sector",
-        "Momentum Quality", "AI View", "Evidence Confidence",
-        "Risk Flags", "Why Selected", "Catalyst Assessment",
+    # Compact prompt payload to stay well under Groq's 8,000 TPM free-tier limit
+    plan2_compact = {}
+    for k, short in (
+        ("ID Rank", "id_rank"),
+        ("Momentum Rank", "mom_rank"),
+        ("Momentum %", "mom_pct"),
+        ("ID", "id"),
+        ("Portfolio Signal", "signal"),
+        ("Sector", "sector"),
+        ("Momentum Quality", "mom_q"),
+        ("Risk Flags", "plan2_risks"),
+        ("Market 20D %", "mkt_20d"),
+    ):
+        if k in row.index and s(row[k]):
+            plan2_compact[short] = s(row[k])
+
+    compact_news = [
+        f"{n['title'][:110]} ({n['date'][:10]})"
+        for n in news_full[:3]
     ]
 
-    return {
+    evidence = {
         "stock": symbol,
-        "plan2": {k: s(row[k]) for k in row.index if k in plan2_keys},
-        "price_volume": price,
-        "fundamentals": fund,
-        "quarterly": qtr,
-        "balance_cashflow": bs,
-        "recent_news": news,
-        "risk_flags": risk_flags(price, fund, qtr),
-        "macro_policy_sources": macro_context(),
+        "plan2": plan2_compact,
+        "px": price,
+        "fund": fund,
+        "qtr": qtr,
+        "news": compact_news,
+        "flags": risk_flags(price, fund, qtr),
     }
+    return evidence, news_full
+
+
+def extract_json_object(text):
+    """Extract a JSON object from raw model output (handles code fences or stray text)."""
+    text = s(text)
+    if not text:
+        raise ValueError("Empty response content from model")
+
+    # Direct parse
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    # Strip markdown code fences if present
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+    try:
+        obj = json.loads(cleaned)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    # Fallback: locate outermost {...}
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        obj = json.loads(cleaned[start:end + 1])
+        if isinstance(obj, dict):
+            return obj
+
+    raise ValueError(f"Could not parse JSON from model output: {text[:180]}")
 
 
 def normalize_report(symbol, parsed, fallback_flags):
@@ -417,74 +424,75 @@ def fallback_report(symbol, reason="AI research unavailable for this run.", flag
 
 def groq_research(api_key, evidence):
     system_prompt = (
-        "You are an evidence-first Indian equity research analyst. "
-        "Use ONLY the supplied JSON data. Never invent a reason for a price move, "
-        "policy effect, quarterly result, news event, or global impact. "
-        "If evidence is missing, write 'No clear evidence available.' "
-        "For government_policy_impact, rbi_impact, sebi_impact, and global_impact, "
-        "write 'Not established.' unless the supplied evidence directly supports a connection. "
-        "Do not give target prices, guaranteed returns, or alter Plan 2 ranking/allocation. "
-        "Return a valid JSON object containing EXACTLY these keys: "
-        "stock (string), executive_summary (string), plan2_interpretation (string), "
-        "fundamental_picture (string), quarterly_picture (string), price_move_explanation (string), "
-        "volume_liquidity (string), sector_impact (string), global_impact (string), "
-        "government_policy_impact (string), rbi_impact (string), sebi_impact (string), "
-        "positive_factors (array of strings), negative_factors (array of strings), "
-        "consider (array of strings), do_not_assume (array of strings), "
-        "watch_next (array of strings), risk_flags (array of strings), "
-        "evidence_confidence (string: High, Medium, or Low)."
+        "You are an evidence-first Indian equity analyst. Use ONLY the supplied JSON. "
+        "Never invent facts, target prices, or causes. If missing, write 'No clear evidence available.' "
+        "For global_impact, government_policy_impact, rbi_impact, sebi_impact write 'Not established.' "
+        "unless directly supported by supplied news. Keep every string brief (1-2 sentences, <=25 words) "
+        "and each array <=3 short items. "
+        "Reply with ONLY a raw JSON object (no markdown, no explanation) having keys: "
+        "executive_summary, plan2_interpretation, fundamental_picture, quarterly_picture, "
+        "price_move_explanation, volume_liquidity, sector_impact, global_impact, "
+        "government_policy_impact, rbi_impact, sebi_impact, evidence_confidence (High/Medium/Low), "
+        "positive_factors, negative_factors, consider, do_not_assume, watch_next, risk_flags."
     )
 
+    payload = {
+        "model": GROQ_MODEL,
+        "temperature": 0.1,
+        "reasoning_effort": "low",
+        "include_reasoning": False,
+        "max_completion_tokens": 1800,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "Evidence JSON: " + safe_json(evidence)},
+        ],
+    }
+
     last_err = None
-    for model in MODELS:
-        payload = {
-            "model": model,
-            "temperature": 0.1,
-            "max_tokens": 1400,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        "Produce a concise, evidence-only JSON research report for this stock.\n"
-                        "Evidence:\n" + safe_json(evidence)
-                    ),
+    for attempt in range(4):
+        try:
+            r = requests.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": "Bearer " + api_key,
+                    "Content-Type": "application/json",
                 },
-            ],
-        }
+                json=payload,
+                timeout=90,
+            )
 
-        for attempt in range(3):
-            try:
-                r = requests.post(
-                    GROQ_URL,
-                    headers={
-                        "Authorization": "Bearer " + api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                    timeout=90,
-                )
-                if r.status_code == 429 or r.status_code >= 500:
-                    wait = min(30, 3 * (2 ** attempt))
-                    print(f"  Groq HTTP {r.status_code} on {model}; retrying in {wait}s...")
-                    time.sleep(wait)
-                    last_err = f"HTTP {r.status_code}: {r.text[:200]}"
-                    continue
+            if r.status_code == 429 or r.status_code >= 500:
+                retry_hdr = r.headers.get("retry-after") or r.headers.get("Retry-After")
+                if retry_hdr:
+                    try:
+                        wait = min(65.0, float(retry_hdr) + 1.5)
+                    except Exception:
+                        wait = min(60.0, 12.0 * (attempt + 1))
+                else:
+                    # Parse "Please try again in X.Xs" if present in Groq error message
+                    m = re.search(r"try again in ([0-9.]+)s", r.text, flags=re.IGNORECASE)
+                    wait = min(65.0, float(m.group(1)) + 2.0) if m else min(60.0, 12.0 * (attempt + 1))
+                print(f"  Groq HTTP {r.status_code}; waiting {wait:.1f}s before retry {attempt + 1}/4...")
+                time.sleep(wait)
+                last_err = f"HTTP {r.status_code}: {r.text[:220]}"
+                continue
 
-                if not r.ok:
-                    last_err = f"{model} HTTP {r.status_code}: {r.text[:300]}"
-                    print(f"  Groq model {model} rejected request: {last_err}")
-                    break
+            if not r.ok:
+                last_err = f"HTTP {r.status_code}: {r.text[:300]}"
+                print(f"  Groq rejected request: {last_err}")
+                break
 
-                content = r.json()["choices"][0]["message"]["content"]
-                parsed = json.loads(content)
-                return normalize_report(evidence["stock"], parsed, evidence.get("risk_flags", []))
-            except Exception as exc:
-                last_err = f"{model}: {exc}"
-                time.sleep(2 * (attempt + 1))
+            data = r.json()
+            msg = data["choices"][0]["message"]
+            content = msg.get("content") or ""
+            parsed = extract_json_object(content)
+            return normalize_report(evidence["stock"], parsed, evidence.get("flags", []))
+        except Exception as exc:
+            last_err = str(exc)
+            print(f"  Attempt {attempt + 1}/4 parse/request error: {last_err[:180]}")
+            time.sleep(4 * (attempt + 1))
 
-    raise RuntimeError(last_err or "All Groq models failed")
+    raise RuntimeError(last_err or "Groq request failed")
 
 
 def main():
@@ -503,12 +511,16 @@ def main():
         pd.DataFrame(source_rows, columns=["Stock", "Source Type", "Publisher", "Date", "Title", "URL"]).to_csv(SOURCES_OUT, index=False)
         return
 
+    print(f"Using Groq model: {GROQ_MODEL} | Pace: {REQUEST_PACE_SECONDS}s/stock")
+    ok_count = 0
+
     for i, (_, row) in enumerate(top.iterrows(), start=1):
         symbol = s(row["Stock"])
+        t0 = time.time()
         print(f"[{i}/{len(top)}] Collecting {symbol}")
-        evidence = collect_stock(row)
+        evidence, news_full = collect_stock(row)
 
-        for n in evidence.get("recent_news", []):
+        for n in news_full:
             source_rows.append({
                 "Stock": symbol,
                 "Source Type": "News discovery",
@@ -521,12 +533,16 @@ def main():
         try:
             report = groq_research(api_key, evidence)
             results.append(report)
-            print(f"  AI research complete: {symbol}")
+            ok_count += 1
+            print(f"  AI research complete: {symbol} (success {ok_count}/{i})")
         except Exception as exc:
-            results.append(fallback_report(symbol, flags=evidence.get("risk_flags", []) or ["AI unavailable"]))
+            results.append(fallback_report(symbol, flags=evidence.get("flags", []) or ["AI unavailable"]))
             print(f"  AI research failed for {symbol}: {exc}")
 
-        time.sleep(2.2)
+        elapsed = time.time() - t0
+        sleep_needed = max(0.0, REQUEST_PACE_SECONDS - elapsed)
+        if i < len(top) and sleep_needed > 0:
+            time.sleep(sleep_needed)
 
     pd.DataFrame(results).to_csv(OUT, index=False)
     pd.DataFrame(
@@ -534,7 +550,7 @@ def main():
         columns=["Stock", "Source Type", "Publisher", "Date", "Title", "URL"],
     ).to_csv(SOURCES_OUT, index=False)
 
-    print(f"Wrote {OUT} ({len(results)} stocks)")
+    print(f"Wrote {OUT} ({ok_count}/{len(results)} AI reports succeeded)")
     print(f"Wrote {SOURCES_OUT} ({len(source_rows)} source rows)")
 
 
