@@ -255,10 +255,30 @@ def main():
 
         id_score = (1.0 if momentum > 0 else -1.0) * (negative_days - positive_days)
 
+        live_price = float(close.iloc[-1])
+        ret_1m = float((live_price / float(close.iloc[-21]) - 1.0) * 100.0) if len(close) >= 21 and float(close.iloc[-21]) > 0 else np.nan
+        ret_3m = float((live_price / float(close.iloc[-64]) - 1.0) * 100.0) if len(close) >= 64 and float(close.iloc[-64]) > 0 else np.nan
+        dma50 = float(close.tail(50).mean()) if len(close) >= 50 else np.nan
+        dma200 = float(close.tail(200).mean()) if len(close) >= 200 else np.nan
+
+        if np.isfinite(dma50) and np.isfinite(ret_1m):
+            if live_price > dma50 and ret_1m > 0:
+                current_trend = "UP"
+            elif (np.isfinite(dma200) and live_price <= dma200) or (live_price <= dma50 and ret_1m <= -10.0):
+                current_trend = "WEAK"
+            else:
+                current_trend = "PULLBACK"
+        else:
+            current_trend = "N/A"
+
         results.append({
             "Stock": sym,
-            "Live Price": float(close.iloc[-1]),
+            "Live Price": live_price,
             "Momentum 12-2": float(momentum),
+            "1M Return %": round(ret_1m, 2) if np.isfinite(ret_1m) else np.nan,
+            "3M Return %": round(ret_3m, 2) if np.isfinite(ret_3m) else np.nan,
+            "50 DMA": round(dma50, 2) if np.isfinite(dma50) else np.nan,
+            "Current Trend": current_trend,
             "Positive Days %": positive_days,
             "Negative Days %": negative_days,
             "ID": float(id_score),
@@ -380,6 +400,10 @@ def main():
         "Stock",
         "Live Price",
         "Momentum 12-2",
+        "1M Return %",
+        "3M Return %",
+        "50 DMA",
+        "Current Trend",
         "Positive Days %",
         "Negative Days %",
         "ID",
@@ -450,9 +474,11 @@ def main():
     print(f"SELL: {int((df['Portfolio Signal'] == 'SELL').sum())}")
     print("HOLD -> SELL safety: only valid current-data exits; missing data is not a SELL")
 
-    display_df = top50_output[["Momentum Rank", "ID Rank", "Stock", "Live Price", "Momentum 12-2", "ID", "Portfolio Signal", "Weight %"]].copy()
+    display_df = top50_output[["Momentum Rank", "ID Rank", "Stock", "Live Price", "Momentum 12-2", "1M Return %", "3M Return %", "Current Trend", "ID", "Portfolio Signal", "Weight %"]].copy()
     display_df["Live Price"] = display_df["Live Price"].map(lambda x: f"{x:.2f}")
     display_df["Momentum 12-2"] = display_df["Momentum 12-2"].map(lambda x: f"{x:.2%}")
+    display_df["1M Return %"] = display_df["1M Return %"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "N/A")
+    display_df["3M Return %"] = display_df["3M Return %"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "N/A")
     display_df["ID"] = display_df["ID"].map(lambda x: f"{x:.4f}")
     display_df["Weight %"] = display_df["Weight %"].map(lambda x: f"{x:.2f}%")
 
