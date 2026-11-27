@@ -26,7 +26,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 
 TOP50_FILE = Path("live_plan2_top50.csv")
-UNIVERSE_FILE = Path("universe.csv")
+UNIVERSE_FILE = Path("live_plan2_ranking.csv")
 OUTPUT_FILE = Path("sector_wise_top50.csv")
 MASTER_FILE = Path("zerodha_sector_master.csv")
 MISSING_FILE = Path("sector_mapping_missing.csv")
@@ -228,7 +228,7 @@ def classify():
         )
         if unexpected:
             print(
-                "WARNING: Top 50 contains symbols not present in universe.csv:",
+                "WARNING: Top 50 contains symbols not present in live_plan2_ranking.csv:",
                 unexpected,
             )
 
